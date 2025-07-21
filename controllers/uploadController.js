@@ -27,7 +27,7 @@ throw new Error("Tidak ada data valid untuk disimpan");
 
 console.log(`Valid records to insert: ${validData.length}`);
 
-const batchSize = 3000;
+const batchSize = 1000;
 let totalInserted = 0;
 
 for (let i = 0; i < validData.length; i += batchSize) {
@@ -36,14 +36,13 @@ console.log(`Inserting batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(validD
 
 const result = await ExcelData.insertMany(batch, { 
 session, 
-ordered: false,
-rawResult: false
+ordered: false
 });
 
-const insertedCount = Array.isArray(result) ? result.length : result.insertedCount || batch.length;
+const insertedCount = Array.isArray(result) ? result.length : result.length;
 totalInserted += insertedCount;
 
-console.log(`Batch inserted: ${insertedCount} records`);
+console.log(`Batch inserted: ${insertedCount} records, Total so far: ${totalInserted}`);
 }
 
 await session.commitTransaction();
@@ -104,7 +103,7 @@ throw new Error("Tidak ada data valid untuk ditambahkan");
 
 console.log(`Valid records to append: ${validData.length}`);
 
-const batchSize = 3000;
+const batchSize = 1000;
 let totalInserted = 0;
 
 for (let i = 0; i < validData.length; i += batchSize) {
@@ -113,20 +112,23 @@ console.log(`Appending batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(validD
 
 const result = await ExcelData.insertMany(batch, { 
 session, 
-ordered: false,
-rawResult: false
+ordered: false
 });
 
-const insertedCount = Array.isArray(result) ? result.length : result.insertedCount || batch.length;
+const insertedCount = Array.isArray(result) ? result.length : result.length;
 totalInserted += insertedCount;
 
-console.log(`Batch appended: ${insertedCount} records`);
+console.log(`Batch appended: ${insertedCount} records, Total appended so far: ${totalInserted}`);
 }
 
 await session.commitTransaction();
 
 const countAfter = await ExcelData.countDocuments();
 console.log(`Records after append: ${countAfter}`);
+
+if (countAfter !== countBefore + totalInserted) {
+console.warn(`Warning: Expected ${countBefore + totalInserted} records, but found ${countAfter}`);
+}
 
 res.status(201).json({
 message: `${totalInserted} data baru berhasil ditambahkan. Total data: ${countAfter}`,
@@ -279,7 +281,7 @@ error: error.message
 const getAllData = async (req, res) => {
 try {
 const page = parseInt(req.query.page) || 1;
-const limit = parseInt(req.query.limit) || 1000;
+const limit = parseInt(req.query.limit) || 10000;
 const skip = (page - 1) * limit;
 
 const [data, total] = await Promise.all([
@@ -287,7 +289,7 @@ ExcelData.find().skip(skip).limit(limit).lean(),
 ExcelData.countDocuments()
 ]);
 
-console.log(`Data fetched: ${data.length} records (page ${page})`);
+console.log(`Data fetched: ${data.length} records (page ${page}), Total in DB: ${total}`);
 
 res.status(200).json({
 data,
@@ -311,7 +313,7 @@ const getDataByClient = async (req, res) => {
 try {
 const client = req.params.client;
 const page = parseInt(req.query.page) || 1;
-const limit = parseInt(req.query.limit) || 1000;
+const limit = parseInt(req.query.limit) || 10000;
 const skip = (page - 1) * limit;
 
 console.log(`Searching for client: ${client}`);
