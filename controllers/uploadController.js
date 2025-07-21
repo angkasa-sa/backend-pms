@@ -1,180 +1,162 @@
 const ExcelData = require("../models/ExcelData");
 
 const uploadData = async (req, res) => {
-  try {
-    const dataArray = req.body.records || req.body;
+try {
+const dataArray = req.body.records || req.body;
 
-    if (!Array.isArray(dataArray) || dataArray.length === 0) {
-      return res.status(400).json({ message: "Data tidak valid atau kosong." });
-    }
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+return res.status(400).json({ message: "Data tidak valid atau kosong." });
+}
 
-    console.log(`Starting upload process for ${dataArray.length} records`);
+console.log(`Starting upload process for ${dataArray.length} records`);
 
-    const session = await ExcelData.db.startSession();
-    session.startTransaction();
+const session = await ExcelData.db.startSession();
+session.startTransaction();
 
-    try {
-      await ExcelData.deleteMany({}, { session });
-      console.log("Existing data cleared");
+try {
+await ExcelData.deleteMany({}, { session });
+console.log("Existing data cleared");
 
-      const batchSize = 2000;
-      let totalInserted = 0;
-      const totalBatches = Math.ceil(dataArray.length / batchSize);
+const validData = dataArray.filter(item => 
+item && typeof item === 'object' && Object.keys(item).length > 0
+);
 
-      for (let i = 0; i < dataArray.length; i += batchSize) {
-        const batch = dataArray.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
-        
-        console.log(`Processing batch ${batchNumber}/${totalBatches} - ${batch.length} records`);
+if (validData.length === 0) {
+throw new Error("Tidak ada data valid untuk disimpan");
+}
 
-        try {
-          const result = await ExcelData.insertMany(batch, { 
-            session, 
-            ordered: false,
-            rawResult: true 
-          });
-          
-          const insertedCount = result.insertedCount || batch.length;
-          totalInserted += insertedCount;
-          
-          console.log(`Batch ${batchNumber} completed: ${insertedCount} records inserted`);
-          
-        } catch (batchError) {
-          console.error(`Batch ${batchNumber} failed:`, batchError.message);
-          throw new Error(`Batch ${batchNumber} gagal: ${batchError.message}`);
-        }
-      }
+console.log(`Valid records to insert: ${validData.length}`);
 
-      await session.commitTransaction();
-      console.log(`Upload completed successfully: ${totalInserted} total records inserted`);
+const result = await ExcelData.insertMany(validData, { 
+session, 
+ordered: false,
+rawResult: false
+});
 
-      res.status(201).json({
-        message: `Data berhasil disimpan: ${totalInserted} records. Data lama dihapus.`,
-        summary: {
-          totalRecords: totalInserted,
-          batchesProcessed: totalBatches,
-          success: true
-        }
-      });
+const insertedCount = Array.isArray(result) ? result.length : result.insertedCount || validData.length;
 
-    } catch (transactionError) {
-      await session.abortTransaction();
-      throw transactionError;
-    } finally {
-      session.endSession();
-    }
+await session.commitTransaction();
+console.log(`Upload completed successfully: ${insertedCount} total records inserted`);
 
-  } catch (error) {
-    console.error("Upload error:", error.message);
-    res.status(500).json({ 
-      message: "Upload gagal", 
-      error: error.message
-    });
-  }
+const finalCount = await ExcelData.countDocuments();
+console.log(`Database count after upload: ${finalCount}`);
+
+res.status(201).json({
+message: `Data berhasil disimpan: ${insertedCount} records. Data lama dihapus.`,
+summary: {
+totalRecords: insertedCount,
+finalDatabaseCount: finalCount,
+success: true
+}
+});
+
+} catch (transactionError) {
+await session.abortTransaction();
+throw transactionError;
+} finally {
+session.endSession();
+}
+
+} catch (error) {
+console.error("Upload error:", error.message);
+res.status(500).json({ 
+message: "Upload gagal", 
+error: error.message
+});
+}
 };
 
 const appendData = async (req, res) => {
-  try {
-    const dataArray = req.body.records || req.body;
+try {
+const dataArray = req.body.records || req.body;
 
-    if (!Array.isArray(dataArray) || dataArray.length === 0) {
-      return res.status(400).json({ message: "Data tidak valid atau kosong." });
-    }
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+return res.status(400).json({ message: "Data tidak valid atau kosong." });
+}
 
-    console.log(`Starting append process for ${dataArray.length} records`);
+console.log(`Starting append process for ${dataArray.length} records`);
 
-    const countBefore = await ExcelData.countDocuments();
-    console.log(`Records before append: ${countBefore}`);
+const countBefore = await ExcelData.countDocuments();
+console.log(`Records before append: ${countBefore}`);
 
-    const session = await ExcelData.db.startSession();
-    session.startTransaction();
+const session = await ExcelData.db.startSession();
+session.startTransaction();
 
-    try {
-      const batchSize = 2000;
-      let totalInserted = 0;
-      const totalBatches = Math.ceil(dataArray.length / batchSize);
+try {
+const validData = dataArray.filter(item => 
+item && typeof item === 'object' && Object.keys(item).length > 0
+);
 
-      for (let i = 0; i < dataArray.length; i += batchSize) {
-        const batch = dataArray.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
-        
-        console.log(`Processing append batch ${batchNumber}/${totalBatches} - ${batch.length} records`);
+if (validData.length === 0) {
+throw new Error("Tidak ada data valid untuk ditambahkan");
+}
 
-        try {
-          const result = await ExcelData.insertMany(batch, { 
-            session, 
-            ordered: false,
-            rawResult: true 
-          });
-          
-          const insertedCount = result.insertedCount || batch.length;
-          totalInserted += insertedCount;
-          
-          console.log(`Append batch ${batchNumber} completed: ${insertedCount} records added`);
-          
-        } catch (batchError) {
-          console.error(`Append batch ${batchNumber} failed:`, batchError.message);
-          throw new Error(`Append batch ${batchNumber} gagal: ${batchError.message}`);
-        }
-      }
+console.log(`Valid records to append: ${validData.length}`);
 
-      await session.commitTransaction();
+const result = await ExcelData.insertMany(validData, { 
+session, 
+ordered: false,
+rawResult: false
+});
 
-      const countAfter = await ExcelData.countDocuments();
-      console.log(`Records after append: ${countAfter}`);
+const insertedCount = Array.isArray(result) ? result.length : result.insertedCount || validData.length;
 
-      res.status(201).json({
-        message: `${totalInserted} data baru berhasil ditambahkan. Total data: ${countAfter}`,
-        summary: {
-          dataBefore: countBefore,
-          dataAdded: totalInserted,
-          dataAfter: countAfter,
-          batchesProcessed: totalBatches,
-          success: true
-        }
-      });
+await session.commitTransaction();
 
-    } catch (transactionError) {
-      await session.abortTransaction();
-      throw transactionError;
-    } finally {
-      session.endSession();
-    }
+const countAfter = await ExcelData.countDocuments();
+console.log(`Records after append: ${countAfter}`);
 
-  } catch (error) {
-    console.error("Append error:", error.message);
-    res.status(500).json({ 
-      message: "Append gagal", 
-      error: error.message
-    });
-  }
+res.status(201).json({
+message: `${insertedCount} data baru berhasil ditambahkan. Total data: ${countAfter}`,
+summary: {
+dataBefore: countBefore,
+dataAdded: insertedCount,
+dataAfter: countAfter,
+success: true
+}
+});
+
+} catch (transactionError) {
+await session.abortTransaction();
+throw transactionError;
+} finally {
+session.endSession();
+}
+
+} catch (error) {
+console.error("Append error:", error.message);
+res.status(500).json({ 
+message: "Append gagal", 
+error: error.message
+});
+}
 };
 
 const replaceData = async (req, res) => {
-  try {
-    const dataArray = req.body.records || req.body;
+try {
+const dataArray = req.body.records || req.body;
 
-    if (!Array.isArray(dataArray) || dataArray.length === 0) {
-      return res.status(400).json({ message: "Data replace tidak valid atau kosong." });
-    }
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+return res.status(400).json({ message: "Data replace tidak valid atau kosong." });
+}
 
-    console.log(`Starting replace process for ${dataArray.length} records`);
+console.log(`Starting replace process for ${dataArray.length} records`);
 
-    const session = await ExcelData.db.startSession();
-    session.startTransaction();
+const session = await ExcelData.db.startSession();
+session.startTransaction();
 
-    try {
-      let matchedCount = 0;
-      let notFoundCount = 0;
-      let updatedRecords = [];
-      let notFoundRecords = [];
+try {
+let matchedCount = 0;
+let notFoundCount = 0;
+let updatedRecords = [];
+let notFoundRecords = [];
 
-      const batchSize = 500;
-      const totalBatches = Math.ceil(dataArray.length / batchSize);
+const batchSize = 500;
+const totalBatches = Math.ceil(dataArray.length / batchSize);
 
-      for (let i = 0; i < dataArray.length; i += batchSize) {
-        const batch = dataArray.slice(i, i + batchSize);
-        const batchNumber = Math.floor(i / batchSize) + 1;
+for (let i = 0; i < dataArray.length; i += batchSize) {
+const batch = dataArray.slice(i, i + batchSize);
+const batchNumber = Math.floor(i / batchSize) + 1;
         
         console.log(`Processing replace batch ${batchNumber}/${totalBatches} - ${batch.length} records`);
 
