@@ -2,7 +2,7 @@ const ExcelData = require("../models/ExcelData");
 
 const uploadData = async (req, res) => {
 try {
-const dataArray = req.body;
+const dataArray = req.body.records || req.body;
 
 if (!Array.isArray(dataArray) || dataArray.length === 0) {
 return res.status(400).json({ message: "Data tidak valid atau kosong." });
@@ -26,7 +26,7 @@ res.status(500).json({ message: "Upload gagal", error: error.message });
 
 const appendData = async (req, res) => {
 try {
-const dataArray = req.body;
+const dataArray = req.body.records || req.body;
 
 if (!Array.isArray(dataArray) || dataArray.length === 0) {
 return res.status(400).json({ message: "Data tidak valid atau kosong." });
@@ -60,7 +60,7 @@ res.status(500).json({ message: "Append gagal", error: error.message });
 
 const replaceData = async (req, res) => {
 try {
-const dataArray = req.body;
+const dataArray = req.body.records || req.body;
 
 if (!Array.isArray(dataArray) || dataArray.length === 0) {
 return res.status(400).json({ message: "Data replace tidak valid atau kosong." });
