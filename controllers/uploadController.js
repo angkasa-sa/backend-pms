@@ -1,396 +1,201 @@
 const ExcelData = require("../models/ExcelData");
 
-const OPTIMAL_BATCH_SIZE = 500;
-const MAX_MEMORY_THRESHOLD = 100 * 1024 * 1024;
-const BULK_WRITE_OPTIONS = {
-    ordered: false,
-    writeConcern: { w: 1, j: false },
-    maxTimeMS: 300000
-};
-
-const memoryMonitor = {
-    checkMemory() {
-        const usage = process.memoryUsage();
-        return {
-            used: usage.heapUsed,
-            isHigh: usage.heapUsed > MAX_MEMORY_THRESHOLD
-        };
-    },
-    
-    async forceGC() {
-        if (global.gc) {
-            global.gc();
-            await new Promise(resolve => setImmediate(resolve));
-        }
-    }
-};
-
-const processBulkInsert = async (batch) => {
-    try {
-        const bulkOps = batch.map(doc => ({
-            insertOne: { document: doc }
-        }));
-        
-        const result = await ExcelData.bulkWrite(bulkOps, BULK_WRITE_OPTIONS);
-        return { success: result.insertedCount, errors: 0 };
-    } catch (error) {
-        console.error('Bulk insert error:', error.message);
-        
-        if (error.writeErrors && error.writeErrors.length < batch.length / 2) {
-            return { 
-                success: batch.length - error.writeErrors.length, 
-                errors: error.writeErrors.length 
-            };
-        }
-        throw error;
-    }
-};
-
-const processBulkReplace = async (batch) => {
-    try {
-        const bulkOps = batch.map(item => ({
-            replaceOne: {
-                filter: { 
-                    "Client Name": item["Client Name"], 
-                    "Order Code": item["Order Code"] 
-                },
-                replacement: item,
-                upsert: true
-            }
-        }));
-        
-        const result = await ExcelData.bulkWrite(bulkOps, BULK_WRITE_OPTIONS);
-        return { 
-            matched: result.matchedCount,
-            modified: result.modifiedCount,
-            upserted: result.upsertedCount,
-            errors: 0
-        };
-    } catch (error) {
-        console.error('Bulk replace error:', error.message);
-        throw error;
-    }
-};
-
 const uploadData = async (req, res) => {
-    let startTime = Date.now();
-    
-    try {
-        const dataArray = req.body;
+try {
+const dataArray = req.body;
 
-        if (!Array.isArray(dataArray) || dataArray.length === 0) {
-            return res.status(400).json({ 
-                message: "Data tidak valid atau kosong.",
-                timestamp: new Date().toISOString()
-            });
-        }
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+return res.status(400).json({ message: "Data tidak valid atau kosong." });
+}
 
-        console.log(`🚀 Starting upload process for ${dataArray.length} records`);
+await ExcelData.deleteMany({});
+console.log("Data lama dihapus");
 
-        await ExcelData.deleteMany({}).maxTimeMS(60000);
-        console.log("✅ Existing data cleared");
+const inserted = await ExcelData.insertMany(dataArray);
+console.log("Data disimpan:", inserted.length);
 
-        let totalInserted = 0;
-        let totalErrors = 0;
-        const totalBatches = Math.ceil(dataArray.length / OPTIMAL_BATCH_SIZE);
-        
-        for (let i = 0; i < dataArray.length; i += OPTIMAL_BATCH_SIZE) {
-            const batch = dataArray.slice(i, i + OPTIMAL_BATCH_SIZE);
-            const currentBatch = Math.floor(i / OPTIMAL_BATCH_SIZE) + 1;
-            
-            console.log(`📦 Processing batch ${currentBatch}/${totalBatches} (${batch.length} records)`);
-
-            const result = await processBulkInsert(batch);
-            totalInserted += result.success;
-            totalErrors += result.errors;
-
-            const memCheck = memoryMonitor.checkMemory();
-            if (memCheck.isHigh) {
-                console.log(`⚠️ High memory usage detected: ${Math.round(memCheck.used / 1024 / 1024)}MB`);
-                await memoryMonitor.forceGC();
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-
-            if (currentBatch % 10 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-        }
-
-        const duration = Date.now() - startTime;
-        console.log(`✅ Upload completed in ${duration}ms: ${totalInserted} inserted, ${totalErrors} errors`);
-
-        res.status(201).json({
-            message: `Data berhasil disimpan. ${totalInserted} records berhasil diupload, ${totalErrors} errors.`,
-            summary: {
-                totalProcessed: dataArray.length,
-                totalInserted,
-                totalErrors,
-                batches: totalBatches,
-                batchSize: OPTIMAL_BATCH_SIZE,
-                duration: `${duration}ms`
-            },
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error) {
-        const duration = Date.now() - startTime;
-        console.error(`❌ Upload failed after ${duration}ms:`, error.message);
-        
-        res.status(500).json({ 
-            message: "Upload gagal", 
-            error: error.message,
-            duration: `${duration}ms`,
-            timestamp: new Date().toISOString()
-        });
-    }
+res.status(201).json({
+message: "Data berhasil disimpan. Data lama dihapus.",
+data: inserted,
+});
+} catch (error) {
+console.error("Upload error:", error.message);
+res.status(500).json({ message: "Upload gagal", error: error.message });
+}
 };
 
 const appendData = async (req, res) => {
-    let startTime = Date.now();
-    
-    try {
-        const dataArray = req.body;
+try {
+const dataArray = req.body;
 
-        if (!Array.isArray(dataArray) || dataArray.length === 0) {
-            return res.status(400).json({ 
-                message: "Data tidak valid atau kosong.",
-                timestamp: new Date().toISOString()
-            });
-        }
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+return res.status(400).json({ message: "Data tidak valid atau kosong." });
+}
 
-        console.log(`🚀 Starting append process for ${dataArray.length} records`);
+console.log("Memulai proses append data...");
 
-        const countBefore = await ExcelData.estimatedDocumentCount();
-        console.log(`📊 Records before append: ${countBefore}`);
+const countBefore = await ExcelData.countDocuments();
+console.log("Jumlah data sebelum append:", countBefore);
 
-        let totalInserted = 0;
-        let totalErrors = 0;
-        const totalBatches = Math.ceil(dataArray.length / OPTIMAL_BATCH_SIZE);
-        
-        for (let i = 0; i < dataArray.length; i += OPTIMAL_BATCH_SIZE) {
-            const batch = dataArray.slice(i, i + OPTIMAL_BATCH_SIZE);
-            const currentBatch = Math.floor(i / OPTIMAL_BATCH_SIZE) + 1;
-            
-            console.log(`📦 Processing append batch ${currentBatch}/${totalBatches} (${batch.length} records)`);
+const inserted = await ExcelData.insertMany(dataArray);
+console.log("Data baru ditambahkan:", inserted.length);
 
-            const result = await processBulkInsert(batch);
-            totalInserted += result.success;
-            totalErrors += result.errors;
+const countAfter = await ExcelData.countDocuments();
+console.log("Jumlah data setelah append:", countAfter);
 
-            const memCheck = memoryMonitor.checkMemory();
-            if (memCheck.isHigh) {
-                await memoryMonitor.forceGC();
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
-
-            if (currentBatch % 10 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-        }
-
-        const countAfter = await ExcelData.estimatedDocumentCount();
-        const duration = Date.now() - startTime;
-        
-        console.log(`✅ Append completed in ${duration}ms: ${totalInserted} new records added`);
-
-        res.status(201).json({
-            message: `${totalInserted} data baru berhasil ditambahkan. Total data sekarang: ~${countAfter}`,
-            summary: {
-                dataBefore: countBefore,
-                dataAdded: totalInserted,
-                dataAfter: countAfter,
-                totalErrors,
-                batches: totalBatches,
-                batchSize: OPTIMAL_BATCH_SIZE,
-                duration: `${duration}ms`
-            },
-            timestamp: new Date().toISOString()
-        });
-
-    } catch (error) {
-        const duration = Date.now() - startTime;
-        console.error(`❌ Append failed after ${duration}ms:`, error.message);
-        
-        res.status(500).json({ 
-            message: "Append gagal", 
-            error: error.message,
-            duration: `${duration}ms`,
-            timestamp: new Date().toISOString()
-        });
-    }
+res.status(201).json({
+message: `${inserted.length} data baru berhasil ditambahkan. Total data sekarang: ${countAfter}`,
+summary: {
+dataBefore: countBefore,
+dataAdded: inserted.length,
+dataAfter: countAfter
+},
+data: inserted,
+});
+} catch (error) {
+console.error("Append error:", error.message);
+res.status(500).json({ message: "Append gagal", error: error.message });
+}
 };
 
 const replaceData = async (req, res) => {
-    let startTime = Date.now();
-    
-    try {
-        const dataArray = req.body;
+try {
+const dataArray = req.body;
 
-        if (!Array.isArray(dataArray) || dataArray.length === 0) {
-            return res.status(400).json({ 
-                message: "Data replace tidak valid atau kosong.",
-                timestamp: new Date().toISOString()
-            });
-        }
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+return res.status(400).json({ message: "Data replace tidak valid atau kosong." });
+}
 
-        console.log(`🚀 Starting replace process for ${dataArray.length} records`);
+let matchedCount = 0;
+let notFoundCount = 0;
+let updatedRecords = [];
+let notFoundRecords = [];
 
-        let totalMatched = 0;
-        let totalModified = 0;
-        let totalUpserted = 0;
-        let totalErrors = 0;
-        
-        const totalBatches = Math.ceil(dataArray.length / OPTIMAL_BATCH_SIZE);
+console.log("Memulai proses replace data...");
 
-        for (let i = 0; i < dataArray.length; i += OPTIMAL_BATCH_SIZE) {
-            const batch = dataArray.slice(i, i + OPTIMAL_BATCH_SIZE);
-            const currentBatch = Math.floor(i / OPTIMAL_BATCH_SIZE) + 1;
-            
-            console.log(`📦 Processing replace batch ${currentBatch}/${totalBatches} (${batch.length} records)`);
+for (const item of dataArray) {
+const { clientName, orderCode, updateData } = item;
 
-            try {
-                const result = await processBulkReplace(batch);
-                totalMatched += result.matched;
-                totalModified += result.modified;
-                totalUpserted += result.upserted;
-                totalErrors += result.errors;
-            } catch (batchError) {
-                console.error(`Batch ${currentBatch} failed:`, batchError.message);
-                totalErrors += batch.length;
-            }
+if (!clientName || !orderCode) {
+console.log("Skipping item - Client Name atau Order Code kosong");
+continue;
+}
 
-            const memCheck = memoryMonitor.checkMemory();
-            if (memCheck.isHigh) {
-                await memoryMonitor.forceGC();
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
+try {
+const filter = {
+"Client Name": { $regex: new RegExp(`^${clientName}$`, "i") },
+"Order Code": { $regex: new RegExp(`^${orderCode}$`, "i") }
+};
 
-            if (currentBatch % 10 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-        }
+console.log(`Mencari data dengan filter:`, filter);
 
-        const duration = Date.now() - startTime;
-        console.log(`✅ Replace completed in ${duration}ms: ${totalModified} updated, ${totalUpserted} created, ${totalErrors} errors`);
+const cleanUpdateData = {};
+Object.keys(updateData).forEach(key => {
+if (updateData[key] !== null && updateData[key] !== undefined && updateData[key] !== "") {
+cleanUpdateData[key] = updateData[key];
+}
+});
 
-        res.status(200).json({
-            message: `Replace selesai. ${totalModified} records diupdate, ${totalUpserted} records baru dibuat, ${totalErrors} errors.`,
-            summary: {
-                totalProcessed: dataArray.length,
-                matched: totalMatched,
-                modified: totalModified,
-                upserted: totalUpserted,
-                errors: totalErrors,
-                batches: totalBatches,
-                batchSize: OPTIMAL_BATCH_SIZE,
-                duration: `${duration}ms`
-            },
-            timestamp: new Date().toISOString()
-        });
+if (Object.keys(cleanUpdateData).length === 0) {
+console.log(`Tidak ada data untuk diupdate untuk ${clientName} - ${orderCode}`);
+continue;
+}
 
-    } catch (error) {
-        const duration = Date.now() - startTime;
-        console.error(`❌ Replace failed after ${duration}ms:`, error.message);
-        
-        res.status(500).json({ 
-            message: "Replace gagal", 
-            error: error.message,
-            duration: `${duration}ms`,
-            timestamp: new Date().toISOString()
-        });
-    }
+if (cleanUpdateData["Distance"] !== undefined) {
+console.log(`Distance update for ${clientName} - ${orderCode}:`, {
+distance: cleanUpdateData["Distance"],
+roundDownDistance: cleanUpdateData["RoundDown Distance"],
+roundUpDistance: cleanUpdateData["RoundUp Distance"]
+});
+}
+
+const updateResult = await ExcelData.updateOne(
+filter,
+{ $set: cleanUpdateData },
+{ upsert: false }
+);
+
+if (updateResult.matchedCount > 0) {
+matchedCount++;
+updatedRecords.push({
+clientName,
+orderCode,
+updatedFields: Object.keys(cleanUpdateData)
+});
+console.log(`Updated: ${clientName} - ${orderCode}`);
+} else {
+notFoundCount++;
+notFoundRecords.push({ clientName, orderCode });
+console.log(`Tidak ditemukan: ${clientName} - ${orderCode}`);
+}
+
+} catch (updateError) {
+console.error(`Error updating ${clientName} - ${orderCode}:`, updateError.message);
+notFoundCount++;
+notFoundRecords.push({ 
+clientName, 
+orderCode, 
+error: updateError.message 
+});
+}
+}
+
+const responseMessage = `Replace selesai. ${matchedCount} data berhasil diupdate, ${notFoundCount} data tidak ditemukan.`;
+
+console.log("Hasil replace:", {
+total: dataArray.length,
+matched: matchedCount,
+notFound: notFoundCount
+});
+
+res.status(200).json({
+message: responseMessage,
+summary: {
+totalProcessed: dataArray.length,
+successfulUpdates: matchedCount,
+notFound: notFoundCount
+},
+updatedRecords: updatedRecords,
+notFoundRecords: notFoundRecords
+});
+
+} catch (error) {
+console.error("Replace error:", error.message);
+res.status(500).json({ message: "Replace gagal", error: error.message });
+}
 };
 
 const getAllData = async (req, res) => {
-    try {
-        const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(5000, Math.max(100, parseInt(req.query.limit) || 1000));
-        const skip = (page - 1) * limit;
-
-        const [total, data] = await Promise.all([
-            ExcelData.estimatedDocumentCount(),
-            ExcelData.find({}, null, { 
-                skip, 
-                limit, 
-                lean: true,
-                maxTimeMS: 30000
-            })
-        ]);
-
-        res.status(200).json({
-            data,
-            pagination: {
-                currentPage: page,
-                totalPages: Math.ceil(total / limit),
-                totalRecords: total,
-                hasNext: page * limit < total,
-                hasPrev: page > 1,
-                limit
-            },
-            timestamp: new Date().toISOString()
-        });
-        
-    } catch (error) {
-        console.error("Get all data error:", error.message);
-        res.status(500).json({ 
-            message: "Gagal mengambil data", 
-            error: error.message,
-            timestamp: new Date().toISOString()
-        });
-    }
+try {
+const data = await ExcelData.find();
+res.status(200).json(data);
+} catch (error) {
+console.error("Get error:", error.message);
+res.status(500).json({ message: "Gagal mengambil data", error: error.message });
+}
 };
 
 const getDataByClient = async (req, res) => {
-    try {
-        const client = req.params.client;
-        const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(5000, Math.max(100, parseInt(req.query.limit) || 1000));
-        const skip = (page - 1) * limit;
+try {
+const client = req.params.client;
+console.log("Mencari clientName:", client);
 
-        console.log(`🔍 Searching for client: ${client}`);
+const data = await ExcelData.find({
+"Client Name": { $regex: new RegExp(client, "i") }
+});
 
-        const filter = { "Client Name": new RegExp(client, "i") };
-        
-        const [total, data] = await Promise.all([
-            ExcelData.countDocuments(filter).maxTimeMS(30000),
-            ExcelData.find(filter, null, { 
-                skip, 
-                limit, 
-                lean: true,
-                maxTimeMS: 30000
-            })
-        ]);
-
-        console.log(`✅ Found ${data.length} records for client: ${client}`);
-
-        res.status(200).json({
-            data,
-            pagination: {
-                currentPage: page,
-                totalPages: Math.ceil(total / limit),
-                totalRecords: total,
-                hasNext: page * limit < total,
-                hasPrev: page > 1,
-                limit
-            },
-            client,
-            timestamp: new Date().toISOString()
-        });
-        
-    } catch (error) {
-        console.error("Get client data error:", error.message);
-        res.status(500).json({ 
-            message: "Gagal ambil data", 
-            error: error.message,
-            timestamp: new Date().toISOString()
-        });
-    }
+console.log("Jumlah data ditemukan:", data.length);
+res.status(200).json(data);
+} catch (error) {
+console.error("Gagal mengambil data:", error.message);
+res.status(500).json({ message: "Gagal ambil data", error: error.message });
+}
 };
 
 module.exports = {
-    uploadData,
-    appendData,
-    getAllData,
-    getDataByClient,
-    replaceData,
+uploadData,
+appendData,
+getAllData,
+getDataByClient,
+replaceData,
 };
