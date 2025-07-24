@@ -34,7 +34,7 @@ const inserted = await DriverBonus.insertMany(transformedData);
 console.log("Data bonus disimpan:", inserted.length);
 
 res.status(201).json({
-message: "Data bonus berhasil disimpan ke database MongoDB",
+message: "Data bonus berhasil disimpan ke database",
 count: inserted.length,
 data: inserted
 });
@@ -87,7 +87,7 @@ const result = await DriverBonus.bulkWrite(bulkOps);
 console.log("Data bonus appended:", result.upsertedCount + result.modifiedCount);
 
 res.status(201).json({
-message: "Data bonus berhasil ditambahkan ke database MongoDB",
+message: "Data bonus berhasil ditambahkan ke database",
 count: result.upsertedCount + result.modifiedCount,
 upserted: result.upsertedCount,
 modified: result.modifiedCount

@@ -86,7 +86,7 @@ const uploadSayurboxData = async (req, res) => {
         console.log("Data sayurbox disimpan:", inserted.length);
 
         res.status(201).json({
-            message: "Data sayurbox berhasil disimpan ke database MongoDB",
+            message: "Data sayurbox berhasil disimpan ke database",
             count: inserted.length,
             data: inserted
         });
@@ -152,7 +152,7 @@ const appendSayurboxData = async (req, res) => {
         console.log("Data sayurbox appended:", result.upsertedCount + result.modifiedCount);
 
         res.status(201).json({
-            message: "Data sayurbox berhasil ditambahkan ke database MongoDB",
+            message: "Data sayurbox berhasil ditambahkan ke database",
             count: result.upsertedCount + result.modifiedCount,
             upserted: result.upsertedCount,
             modified: result.modifiedCount
