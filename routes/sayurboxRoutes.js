@@ -1,19 +1,32 @@
 const express = require('express');
 const router = express.Router();
 const {
-  uploadSayurboxData,
-  appendSayurboxData,
-  getAllSayurboxData,
-  getSayurboxDataByHub,
-  getSayurboxDataByDriver,
-  deleteSayurboxData,
-  compareDataSayurbox,
-  getDataInfo
+uploadSayurboxData,
+resetUploadState,
+getAllSayurboxData,
+getSayurboxDataByHub,
+getSayurboxDataByDriver,
+deleteSayurboxData,
+compareDataSayurbox,
+getDataInfo
 } = require('../controllers/sayurboxController');
 
-router.post('/upload', uploadSayurboxData);
+const logRequest = (req, res, next) => {
+const startTime = Date.now();
+console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - Start`);
 
-router.post('/append', appendSayurboxData);
+res.on('finish', () => {
+const duration = Date.now() - startTime;
+console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`);
+});
+next();
+};
+
+router.use(logRequest);
+
+router.post('/upload/reset', resetUploadState);
+
+router.post('/upload', uploadSayurboxData);
 
 router.get('/data', getAllSayurboxData);
 

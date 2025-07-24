@@ -70,9 +70,26 @@ monthly: item.Monthly || ''
 };
 
 const uploadState = {
-isFirstUpload: true,
+isInitialized: false,
 reset() {
-this.isFirstUpload = true;
+this.isInitialized = false;
+}
+};
+
+const resetUploadState = async (req, res) => {
+try {
+uploadState.reset();
+console.log('Upload state has been reset');
+res.status(200).json({ 
+message: "Upload state reset successfully",
+success: true 
+});
+} catch (error) {
+console.error("Reset upload state error:", error.message);
+res.status(500).json({ 
+message: "Reset upload state failed", 
+error: error.message 
+});
 }
 };
 
@@ -88,10 +105,10 @@ message: "Data sayurbox tidak valid atau kosong."
 
 console.log(`Uploading ${dataArray.length} sayurbox records...`);
 
-if (uploadState.isFirstUpload) {
+if (!uploadState.isInitialized) {
+console.log("First batch detected - clearing existing data");
 await SayurboxData.deleteMany({});
-console.log("Existing sayurbox data cleared for first batch");
-uploadState.isFirstUpload = false;
+uploadState.isInitialized = true;
 }
 
 const transformedData = transformSayurboxData(dataArray);
@@ -100,9 +117,18 @@ let totalInserted = 0;
 
 for (let i = 0; i < transformedData.length; i += batchSize) {
 const batch = transformedData.slice(i, i + batchSize);
-const inserted = await SayurboxData.insertMany(batch, { ordered: false });
+
+try {
+const inserted = await SayurboxData.insertMany(batch, { 
+ordered: false,
+rawResult: false 
+});
 totalInserted += inserted.length;
-console.log(`Batch ${Math.floor(i / batchSize) + 1}: ${inserted.length} records inserted`);
+console.log(`Sub-batch ${Math.floor(i / batchSize) + 1}: ${inserted.length} records inserted`);
+} catch (insertError) {
+console.error(`Sub-batch ${Math.floor(i / batchSize) + 1} failed:`, insertError.message);
+throw insertError;
+}
 }
 
 console.log(`Total sayurbox data inserted: ${totalInserted}`);
@@ -120,50 +146,6 @@ success: true
 console.error("Upload sayurbox error:", error.message);
 res.status(500).json({ 
 message: "Upload data sayurbox gagal", 
-error: error.message 
-});
-}
-};
-
-const appendSayurboxData = async (req, res) => {
-try {
-const dataArray = req.body;
-
-if (!Array.isArray(dataArray) || dataArray.length === 0) {
-return res.status(400).json({ 
-message: "Data sayurbox tidak valid atau kosong." 
-});
-}
-
-console.log(`Appending ${dataArray.length} sayurbox records...`);
-
-const transformedData = transformSayurboxData(dataArray);
-const batchSize = 1000;
-let totalInserted = 0;
-
-for (let i = 0; i < transformedData.length; i += batchSize) {
-const batch = transformedData.slice(i, i + batchSize);
-const inserted = await SayurboxData.insertMany(batch, { ordered: false });
-totalInserted += inserted.length;
-console.log(`Batch ${Math.floor(i / batchSize) + 1}: ${inserted.length} records inserted`);
-}
-
-console.log(`Total sayurbox data appended: ${totalInserted}`);
-
-res.status(201).json({
-message: "Data sayurbox berhasil ditambahkan ke database",
-count: totalInserted,
-summary: {
-totalRecords: totalInserted,
-dataAdded: totalInserted,
-success: true
-}
-});
-
-} catch (error) {
-console.error("Append sayurbox error:", error.message);
-res.status(500).json({ 
-message: "Append data sayurbox gagal", 
 error: error.message 
 });
 }
@@ -455,7 +437,7 @@ error: error.message
 
 module.exports = {
 uploadSayurboxData,
-appendSayurboxData,
+resetUploadState,
 getAllSayurboxData,
 getSayurboxDataByHub,
 getSayurboxDataByDriver,
