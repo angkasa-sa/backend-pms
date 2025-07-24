@@ -69,7 +69,12 @@ monthly: item.Monthly || ''
 });
 };
 
-let isFirstUpload = true;
+const uploadState = {
+isFirstUpload: true,
+reset() {
+this.isFirstUpload = true;
+}
+};
 
 const uploadSayurboxData = async (req, res) => {
 try {
@@ -83,14 +88,13 @@ message: "Data sayurbox tidak valid atau kosong."
 
 console.log(`Uploading ${dataArray.length} sayurbox records...`);
 
-if (isFirstUpload) {
+if (uploadState.isFirstUpload) {
 await SayurboxData.deleteMany({});
 console.log("Existing sayurbox data cleared for first batch");
-isFirstUpload = false;
+uploadState.isFirstUpload = false;
 }
 
 const transformedData = transformSayurboxData(dataArray);
-
 const batchSize = 1000;
 let totalInserted = 0;
 
@@ -134,45 +138,24 @@ message: "Data sayurbox tidak valid atau kosong."
 console.log(`Appending ${dataArray.length} sayurbox records...`);
 
 const transformedData = transformSayurboxData(dataArray);
-
 const batchSize = 1000;
-let totalUpserted = 0;
-let totalModified = 0;
+let totalInserted = 0;
 
 for (let i = 0; i < transformedData.length; i += batchSize) {
 const batch = transformedData.slice(i, i + batchSize);
-
-const bulkOps = batch.map(item => ({
-updateOne: {
-filter: { 
-orderNo: item.orderNo, 
-hubName: item.hubName, 
-driverName: item.driverName 
-},
-update: { $set: item },
-upsert: true
-}
-}));
-
-const result = await SayurboxData.bulkWrite(bulkOps, { ordered: false });
-totalUpserted += result.upsertedCount;
-totalModified += result.modifiedCount;
-
-console.log(`Batch ${Math.floor(i / batchSize) + 1}: ${result.upsertedCount} new, ${result.modifiedCount} updated`);
+const inserted = await SayurboxData.insertMany(batch, { ordered: false });
+totalInserted += inserted.length;
+console.log(`Batch ${Math.floor(i / batchSize) + 1}: ${inserted.length} records inserted`);
 }
 
-const totalProcessed = totalUpserted + totalModified;
-console.log(`Total sayurbox data processed: ${totalProcessed} (${totalUpserted} new, ${totalModified} updated)`);
+console.log(`Total sayurbox data appended: ${totalInserted}`);
 
 res.status(201).json({
 message: "Data sayurbox berhasil ditambahkan ke database",
-count: totalProcessed,
-upserted: totalUpserted,
-modified: totalModified,
+count: totalInserted,
 summary: {
-totalRecords: totalProcessed,
-dataAdded: totalUpserted,
-dataUpdated: totalModified,
+totalRecords: totalInserted,
+dataAdded: totalInserted,
 success: true
 }
 });
@@ -294,7 +277,7 @@ error: error.message
 const deleteSayurboxData = async (req, res) => {
 try {
 const result = await SayurboxData.deleteMany({});
-isFirstUpload = true;
+uploadState.reset();
 
 res.status(200).json({
 message: "Semua data sayurbox berhasil dihapus",
