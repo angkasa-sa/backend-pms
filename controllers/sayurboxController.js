@@ -385,6 +385,7 @@ error: error.message
 
 const compareDataSayurbox = async (req, res) => {
 const startTime = Date.now();
+const DISPLAY_LIMIT = 50;
 console.log(`[${new Date().toISOString()}] Starting data comparison process...`);
 
 try {
@@ -527,10 +528,15 @@ unmatchedSayurboxCount: unmatchedSayurboxCodes.length,
 processingTime: `${duration}ms`,
 success: true
 },
-unmatchedExcelCodes: unmatchedExcelCodes,
-unmatchedSayurboxCodes: unmatchedSayurboxCodes,
-hasMoreUnmatchedExcel: false,
-hasMoreUnmatchedSayurbox: false
+unmatchedExcelCodes: unmatchedExcelCodes.slice(0, DISPLAY_LIMIT),
+unmatchedSayurboxCodes: unmatchedSayurboxCodes.slice(0, DISPLAY_LIMIT),
+displayInfo: {
+excelDisplayed: Math.min(unmatchedExcelCodes.length, DISPLAY_LIMIT),
+excelTotal: unmatchedExcelCodes.length,
+sayurboxDisplayed: Math.min(unmatchedSayurboxCodes.length, DISPLAY_LIMIT),
+sayurboxTotal: unmatchedSayurboxCodes.length,
+displayLimit: DISPLAY_LIMIT
+}
 });
 
 } catch (transactionError) {
