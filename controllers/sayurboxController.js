@@ -101,8 +101,8 @@ const uploadState = createUploadState();
 
 const logBatchOperation = (operation, batchNum, totalBatches, count, total = null) => {
   const message = total 
-    ? `${operation} batch ${batchNum}/${totalBatches} (${count} records): ${total} total`
-    : `${operation} batch ${batchNum}/${totalBatches} (${count} records)`;
+    ? `${operation} segment ${batchNum}/${totalBatches} (${count} records): ${total} total`
+    : `${operation} segment ${batchNum}/${totalBatches} (${count} records)`;
   console.log(message);
 };
 
@@ -129,7 +129,7 @@ const handleBatchInsert = async (batch, batchNum, totalBatches) => {
 
     if (insertError.code === 11000) {
       const partialInsert = insertError.result?.result?.nInserted || 0;
-      console.warn(`Duplicate key error in batch ${batchNum}, continuing with ${partialInsert} inserts...`);
+      console.warn(`Duplicate key error in segment ${batchNum}, continuing with ${partialInsert} inserts...`);
       
       return {
         batchNum,
@@ -140,7 +140,7 @@ const handleBatchInsert = async (batch, batchNum, totalBatches) => {
       };
     }
 
-    throw new Error(`Database insert failed at batch ${batchNum}: ${insertError.message}`);
+    throw new Error(`Database insert failed at segment ${batchNum}: ${insertError.message}`);
   }
 };
 
@@ -216,11 +216,11 @@ const uploadSayurboxData = async (req, res) => {
       });
     }
 
-    console.log(`Processing batch with ${dataArray.length} records...`);
+    console.log(`Processing segment with ${dataArray.length} records...`);
     console.log(`Upload state initialized: ${uploadState.isInitialized}`);
 
     if (!uploadState.isInitialized) {
-      console.log("First batch detected - clearing existing sayurbox data");
+      console.log("First segment detected - clearing existing sayurbox data");
       const deleteResult = await SayurboxData.deleteMany({});
       console.log(`Deleted ${deleteResult.deletedCount} existing sayurbox records`);
       uploadState.isInitialized = true;
@@ -594,7 +594,7 @@ const compareDataSayurbox = async (req, res) => {
       let unmatchedExcelCodes = [];
       const processedExcelCodes = new Set();
 
-      console.log(`Processing Excel data in batches of ${COMPARE_BATCH_SIZE}...`);
+      console.log(`Processing Excel data in segments of ${COMPARE_BATCH_SIZE}...`);
 
       for (let skip = 0; skip < excelCount; skip += COMPARE_BATCH_SIZE) {
         const excelBatch = await ExcelData.find({}, { "Order Code": 1, Weight: 1, Distance: 1 })
@@ -611,7 +611,7 @@ const compareDataSayurbox = async (req, res) => {
         
         batchResult.batchProcessedExcel.forEach(code => processedExcelCodes.add(code));
 
-        console.log(`Batch processed: ${batchResult.batchMatched} matches found, ${batchResult.batchUpdated} updated`);
+        console.log(`Segment processed: ${batchResult.batchMatched} matches found, ${batchResult.batchUpdated} updated`);
 
         if (skip + COMPARE_BATCH_SIZE < excelCount) {
           console.log(`Processed ${skip + COMPARE_BATCH_SIZE}/${excelCount} Excel records...`);
