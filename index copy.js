@@ -27,25 +27,23 @@ app.use("/api/bonus", bonusRoutes);
 app.use("/api/sayurbox", sayurboxRoutes);
 
 app.get("/", (req, res) => {
-res.json({ 
-message: "PMS API Server is running", 
-timestamp: new Date().toISOString() 
-});
+  res.json({ 
+    message: "PMS API Server is running", 
+    timestamp: new Date().toISOString() 
+  });
 });
 
 app.use(errorHandler);
 
 connectDB().then(() => {
-app.listen(port, "0.0.0.0", () => {
-console.log(`🚀 Server running at http://localhost:${port}`);
-console.log(`📊 Available endpoints:`);
-console.log(`   - POST /api/upload (Upload Excel data)`);
-console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
-console.log(`   - GET /api/bonus/data (Get all bonus data)`);
-console.log(`   - POST /api/sayurbox/upload (Upload sayurbox data)`);
-console.log(`   - GET /api/sayurbox/data (Get all sayurbox data)`);
-console.log(`   - POST /api/sayurbox/edata-upload (Upload edata)`);
-console.log(`   - GET /api/sayurbox/edata (Get all edata)`);
-console.log(`   - GET /api/driver/* (Driver routes)`);
-});
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`🚀 Server running at http://localhost:${port}`);
+    console.log(`📊 Available endpoints:`);
+    console.log(`   - POST /api/upload (Upload Excel data)`);
+    console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
+    console.log(`   - GET /api/bonus/data (Get all bonus data)`);
+    console.log(`   - POST /api/sayurbox/upload (Upload sayurbox data)`);
+    console.log(`   - GET /api/sayurbox/data (Get all sayurbox data)`);
+    console.log(`   - GET /api/driver/* (Driver routes)`);
+  });
 });

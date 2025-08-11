@@ -822,13 +822,13 @@ const newDistance = parseFloat(edataRecord.distanceInKm) || 0;
 const currentWeight = excelRecord.Weight || '';
 
 const distanceMetrics = calculateDistanceMetrics(newDistance);
-const weightMetrics = calculateWeightMetrics(1);
+const weightMetrics = calculateWeightMetrics(5);
 
 const updateData = {
 Distance: distanceMetrics.distance,
 "RoundDown Distance": distanceMetrics.roundDownDistance,
 "RoundUp Distance": distanceMetrics.roundUpDistance,
-Weight: '1',
+Weight: '5',
 RoundDown: weightMetrics.roundDown,
 RoundUp: weightMetrics.roundUp,
 WeightDecimal: weightMetrics.weightDecimal
@@ -841,7 +841,7 @@ await ExcelData.updateOne(
 
 const duration = Date.now() - startTime;
 
-console.log(`Individual compare completed for ${orderCode}: Distance ${currentDistance} -> ${newDistance}, Weight ${currentWeight} -> 1 (${duration}ms)`);
+console.log(`Individual compare completed for ${orderCode}: Distance ${currentDistance} -> ${newDistance}, Weight ${currentWeight} -> 5 (${duration}ms)`);
 
 res.status(200).json({
 success: true,
@@ -850,7 +850,7 @@ updated: true,
 orderCode,
 changes: {
 distance: { from: currentDistance, to: newDistance },
-weight: { from: currentWeight, to: '1' }
+weight: { from: currentWeight, to: '5' }
 },
 duration: `${duration}ms`
 });

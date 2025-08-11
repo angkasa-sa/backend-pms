@@ -1,4 +1,24 @@
 const ExcelData = require("../models/ExcelData");
+const EData = require("../models/EData");
+
+const calculateWeightMetrics = (weight) => {
+const numericWeight = Number(weight) || 0;
+const integerPart = Math.floor(numericWeight);
+const decimalPart = numericWeight - integerPart;
+const roundDown = numericWeight < 1 ? 0 : integerPart;
+const roundUp = decimalPart > 0.30 ? integerPart + 1 : integerPart;
+const weightDecimal = Number((numericWeight - roundDown).toFixed(2));
+return { roundDown, roundUp, weightDecimal };
+};
+
+const calculateDistanceMetrics = (distance) => {
+const distanceVal = Number(distance) || 0;
+const integerPart = Math.floor(distanceVal);
+const decimalPart = distanceVal - integerPart;
+const roundDownDistance = distanceVal < 1 ? 0 : integerPart;
+const roundUpDistance = decimalPart > 0.30 ? integerPart + 1 : integerPart;
+return { roundDownDistance, roundUpDistance };
+};
 
 const uploadData = async (req, res) => {
 try {
@@ -195,7 +215,6 @@ newData.push(item);
 
 if (conflictingData.length > 0) {
 console.log(`Found ${conflictingData.length} conflicting records, but proceeding with update operation`);
-
 
 const session = await ExcelData.db.startSession();
 session.startTransaction();
@@ -603,6 +622,263 @@ error: error.message
 }
 };
 
+const compareDistanceByOrderCode = async (req, res) => {
+try {
+const { orderCode } = req.body;
+
+if (!orderCode || typeof orderCode !== 'string' || !orderCode.trim()) {
+return res.status(400).json({
+success: false,
+message: 'Order Code tidak valid atau kosong'
+});
+}
+
+const trimmedOrderCode = orderCode.trim();
+
+console.log(`Starting compare distance for Order Code: ${trimmedOrderCode}`);
+
+const excelRecord = await ExcelData.findOne({ 
+"Order Code": { $regex: new RegExp(`^${trimmedOrderCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+});
+
+if (!excelRecord) {
+return res.status(404).json({
+success: false,
+message: `Order Code '${trimmedOrderCode}' tidak ditemukan di ExcelData`
+});
+}
+
+const eDataRecord = await EData.findOne({
+orderNo: { $regex: new RegExp(`^${trimmedOrderCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+});
+
+if (!eDataRecord) {
+return res.status(404).json({
+success: false,
+message: `Order Code '${trimmedOrderCode}' tidak ditemukan di EData`
+});
+}
+
+const currentDistance = parseFloat(excelRecord.Distance) || 0;
+const currentWeight = excelRecord.Weight || '';
+const newDistance = parseFloat(eDataRecord.distanceInKm) || 0;
+const newWeight = '5';
+
+console.log(`Current Distance: ${currentDistance}, New Distance: ${newDistance}, Current Weight: ${currentWeight}, New Weight: ${newWeight}`);
+
+const distanceChanged = Math.abs(currentDistance - newDistance) >= 0.01;
+const weightChanged = currentWeight.toString() !== newWeight;
+
+if (!distanceChanged && !weightChanged) {
+return res.status(200).json({
+success: true,
+updated: false,
+message: `Distance dan Weight sudah sesuai (Distance: ${currentDistance} km, Weight: ${currentWeight})`,
+orderCode: trimmedOrderCode,
+oldDistance: currentDistance,
+newDistance: newDistance,
+oldWeight: currentWeight,
+newWeight: newWeight
+});
+}
+
+const updateFields = {};
+
+if (distanceChanged) {
+updateFields.Distance = newDistance;
+const distanceMetrics = calculateDistanceMetrics(newDistance);
+updateFields["RoundDown Distance"] = distanceMetrics.roundDownDistance;
+updateFields["RoundUp Distance"] = distanceMetrics.roundUpDistance;
+}
+
+if (weightChanged) {
+updateFields.Weight = newWeight;
+const weightMetrics = calculateWeightMetrics(newWeight);
+updateFields["RoundDown"] = weightMetrics.roundDown;
+updateFields["RoundUp"] = weightMetrics.roundUp;
+updateFields["WeightDecimal"] = weightMetrics.weightDecimal;
+}
+
+const updateResult = await ExcelData.updateOne(
+{ "Order Code": excelRecord["Order Code"] },
+{ $set: updateFields },
+{ runValidators: true }
+);
+
+if (updateResult.modifiedCount > 0) {
+const updateMessages = [];
+if (distanceChanged) {
+updateMessages.push(`Distance dari ${currentDistance} km menjadi ${newDistance} km`);
+}
+if (weightChanged) {
+updateMessages.push(`Weight dari ${currentWeight} menjadi ${newWeight}`);
+}
+
+console.log(`Data updated successfully for Order Code: ${trimmedOrderCode}`);
+
+return res.status(200).json({
+success: true,
+updated: true,
+message: `Data berhasil diperbarui: ${updateMessages.join(', ')}`,
+orderCode: trimmedOrderCode,
+oldDistance: currentDistance,
+newDistance: newDistance,
+oldWeight: currentWeight,
+newWeight: newWeight,
+modifiedCount: updateResult.modifiedCount
+});
+} else {
+return res.status(400).json({
+success: false,
+message: `Gagal memperbarui data untuk Order Code: ${trimmedOrderCode}`,
+orderCode: trimmedOrderCode
+});
+}
+
+} catch (error) {
+console.error('Compare distance error:', error.message);
+res.status(500).json({
+success: false,
+message: `Compare distance gagal: ${error.message}`,
+error: error.message
+});
+}
+};
+
+const batchCompareAll = async (req, res) => {
+try {
+const { orderCodes } = req.body;
+
+if (!orderCodes || !Array.isArray(orderCodes) || orderCodes.length === 0) {
+return res.status(400).json({
+success: false,
+message: 'Order codes array tidak valid atau kosong'
+});
+}
+
+console.log(`Starting batch compare for ${orderCodes.length} order codes`);
+
+const validOrderCodes = orderCodes.filter(code => code && typeof code === 'string' && code.trim());
+
+if (validOrderCodes.length === 0) {
+return res.status(400).json({
+success: false,
+message: 'Tidak ada order codes yang valid'
+});
+}
+
+let totalProcessed = 0;
+let totalUpdated = 0;
+let errors = [];
+
+const batchSize = 50;
+const totalBatches = Math.ceil(validOrderCodes.length / batchSize);
+
+for (let i = 0; i < validOrderCodes.length; i += batchSize) {
+const batch = validOrderCodes.slice(i, i + batchSize);
+const batchNumber = Math.floor(i / batchSize) + 1;
+
+console.log(`Processing batch ${batchNumber}/${totalBatches} - ${batch.length} order codes`);
+
+for (const orderCode of batch) {
+const trimmedOrderCode = orderCode.trim();
+totalProcessed++;
+
+try {
+const excelRecord = await ExcelData.findOne({ 
+"Order Code": { $regex: new RegExp(`^${trimmedOrderCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+});
+
+if (!excelRecord) {
+errors.push(`${trimmedOrderCode}: Tidak ditemukan di ExcelData`);
+continue;
+}
+
+const eDataRecord = await EData.findOne({
+orderNo: { $regex: new RegExp(`^${trimmedOrderCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+});
+
+if (!eDataRecord) {
+errors.push(`${trimmedOrderCode}: Tidak ditemukan di EData`);
+continue;
+}
+
+const currentDistance = parseFloat(excelRecord.Distance) || 0;
+const currentWeight = excelRecord.Weight || '';
+const newDistance = parseFloat(eDataRecord.distanceInKm) || 0;
+const newWeight = '5';
+
+const distanceChanged = Math.abs(currentDistance - newDistance) >= 0.01;
+const weightChanged = currentWeight.toString() !== newWeight;
+
+if (distanceChanged || weightChanged) {
+const updateFields = {};
+
+if (distanceChanged) {
+updateFields.Distance = newDistance;
+const distanceMetrics = calculateDistanceMetrics(newDistance);
+updateFields["RoundDown Distance"] = distanceMetrics.roundDownDistance;
+updateFields["RoundUp Distance"] = distanceMetrics.roundUpDistance;
+}
+
+if (weightChanged) {
+updateFields.Weight = newWeight;
+const weightMetrics = calculateWeightMetrics(newWeight);
+updateFields["RoundDown"] = weightMetrics.roundDown;
+updateFields["RoundUp"] = weightMetrics.roundUp;
+updateFields["WeightDecimal"] = weightMetrics.weightDecimal;
+}
+
+const updateResult = await ExcelData.updateOne(
+{ "Order Code": excelRecord["Order Code"] },
+{ $set: updateFields },
+{ runValidators: true }
+);
+
+if (updateResult.modifiedCount > 0) {
+totalUpdated++;
+} else {
+errors.push(`${trimmedOrderCode}: Update gagal`);
+}
+}
+
+} catch (error) {
+console.error(`Error processing ${trimmedOrderCode}:`, error.message);
+errors.push(`${trimmedOrderCode}: ${error.message}`);
+}
+}
+
+if (batchNumber < totalBatches) {
+await new Promise(resolve => setTimeout(resolve, 500));
+}
+}
+
+console.log(`Batch compare completed: ${totalUpdated} updated out of ${totalProcessed} processed`);
+
+res.status(200).json({
+success: true,
+message: `Batch compare selesai: ${totalUpdated} data berhasil diperbarui dari ${totalProcessed} data`,
+totalProcessed: totalProcessed,
+totalUpdated: totalUpdated,
+errors: errors.slice(0, 100),
+summary: {
+processed: totalProcessed,
+updated: totalUpdated,
+failed: errors.length,
+successRate: totalProcessed > 0 ? Math.round((totalUpdated / totalProcessed) * 100) : 0
+}
+});
+
+} catch (error) {
+console.error('Batch compare error:', error.message);
+res.status(500).json({
+success: false,
+message: `Batch compare gagal: ${error.message}`,
+error: error.message
+});
+}
+};
+
 const getAllData = async (req, res) => {
 try {
 const page = parseInt(req.query.page) || 1;
@@ -702,4 +978,6 @@ getAllData,
 getDataByClient,
 replaceData,
 deleteData,
+compareDistanceByOrderCode,
+batchCompareAll,
 };
