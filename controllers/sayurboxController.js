@@ -1,5 +1,6 @@
 const SayurboxData = require("../models/SayurboxData");
 const ExcelData = require("../models/ExcelData");
+const EData = require("../models/EData");
 
 const BATCH_SIZE = 3000;
 const COMPARE_BATCH_SIZE = 500;
@@ -55,8 +56,20 @@ roundUpDistance: roundUp
 };
 
 const validateRequiredFields = (item, index) => {
-const requiredFields = ['order_no', 'hub_name', 'driver_name'];
+const requiredFields = ['order_no', 'distance_in_km', 'total_weight_perorder'];
 const missingFields = requiredFields.filter(field => !item[field]);
+
+if (missingFields.length > 0) {
+throw new Error(`Record ${index + 1}: ${missingFields.join(', ')} wajib diisi`);
+}
+};
+
+const validateEDataRequiredFields = (item, index) => {
+const requiredFields = ['order_no', 'distance_in_km'];
+const missingFields = requiredFields.filter(field => {
+const value = item[field];
+return !value && value !== 0;
+});
 
 if (missingFields.length > 0) {
 throw new Error(`Record ${index + 1}: ${missingFields.join(', ')} wajib diisi`);
@@ -82,13 +95,43 @@ isOntime: item.is_ontime === true || item.is_ontime === 'true' || item.is_ontime
 distanceInKm: parseFloat(item.distance_in_km) || 0,
 totalWeightPerorder: parseFloat(item.total_weight_perorder) || 0,
 paymentMethod: String(item.payment_method || '').trim(),
-monthly: String(item.Monthly || '').trim()
+monthly: String(item.monthly || item.Monthly || '').trim()
+});
+
+const transformEDataItem = (item) => ({
+driverName: String(item.driver_name).trim(),
+district: String(item.district || '').trim(),
+customerName: String(item.customer_name || '').trim(),
+deliveryDate: String(item.delivery_date || '').trim(),
+address: String(item.address || '').trim(),
+addressNote: String(item.address_note || '').trim(),
+orderNo: String(item.order_no).trim(),
+packagingOption: String(item.packaging_option || '').trim(),
+distanceInKm: parseFloat(item.distance_in_km) || 0,
+hubs: String(item.hubs).trim(),
+totalPrice: parseFloat(item.total_price) || 0,
+externalNote: String(item.external_note || '').trim(),
+internalNote: String(item.internal_note || '').trim(),
+customerNote: String(item.customer_note || '').trim(),
+timeSlot: String(item.time_slot || '').trim(),
+noPlastic: String(item.no_plastic || '').trim(),
+paymentMethod: String(item.payment_method || '').trim(),
+latitude: parseFloat(item.latitude) || 0,
+longitude: parseFloat(item.longitude) || 0,
+shippingNumber: String(item.shipping_number || '').trim()
 });
 
 const transformSayurboxData = (dataArray) => {
 return dataArray.map((item, index) => {
 validateRequiredFields(item, index);
 return transformSayurboxItem(item);
+});
+};
+
+const transformEDataArray = (dataArray) => {
+return dataArray.map((item, index) => {
+validateEDataRequiredFields(item, index);
+return transformEDataItem(item);
 });
 };
 
@@ -102,7 +145,18 @@ console.log('Upload state reset');
 }
 });
 
+const createEDataUploadState = () => ({
+isInitialized: false,
+totalProcessed: 0,
+reset() {
+this.isInitialized = false;
+this.totalProcessed = 0;
+console.log('EData upload state reset');
+}
+});
+
 const uploadState = createUploadState();
+const eDataUploadState = createEDataUploadState();
 
 const logBatchOperation = (operation, batchNum, totalBatches, count, total = null) => {
 const message = total 
@@ -111,47 +165,44 @@ const message = total
 console.log(message);
 };
 
-const handleBatchInsert = async (batch, batchNum, totalBatches) => {
-logBatchOperation('Inserting', batchNum, totalBatches, batch.length);
+const handleBatchUpsert = async (batch, batchNum, totalBatches, Model, keyField = 'orderNo') => {
+logBatchOperation('Upserting', batchNum, totalBatches, batch.length);
 
 try {
-const insertResult = await SayurboxData.insertMany(batch, { 
-ordered: false,
-rawResult: false 
-});
+const bulkOps = batch.map(item => ({
+replaceOne: {
+filter: { [keyField]: item[keyField] },
+replacement: item,
+upsert: true
+}
+}));
 
-const insertedCount = Array.isArray(insertResult) ? insertResult.length : insertResult.insertedCount || 0;
-logBatchOperation('Completed', batchNum, totalBatches, insertedCount, batch.length);
+const bulkResult = await Model.bulkWrite(bulkOps, { ordered: false });
+const processedCount = bulkResult.upsertedCount + bulkResult.modifiedCount;
+
+logBatchOperation('Upsert completed', batchNum, totalBatches, processedCount, batch.length);
 
 return {
 batchNum,
-inserted: insertedCount,
+inserted: bulkResult.upsertedCount,
+updated: bulkResult.modifiedCount,
+processed: processedCount,
 records: batch.length,
+actualSaved: processedCount,
 success: true
 };
-} catch (insertError) {
-console.error(`Batch ${batchNum} insert failed:`, insertError.message);
-
-if (insertError.code === 11000) {
-const partialInsert = insertError.result?.result?.nInserted || 0;
-console.warn(`Duplicate key error in segment ${batchNum}, continuing with ${partialInsert} inserts...`);
-
-return {
-batchNum,
-inserted: partialInsert,
-records: batch.length,
-error: 'Partial insert due to duplicates',
-success: true
-};
-}
-
-throw new Error(`Database insert failed at segment ${batchNum}: ${insertError.message}`);
+} catch (upsertError) {
+console.error(`Batch ${batchNum} upsert failed:`, upsertError.message);
+throw new Error(`Database upsert failed at segment ${batchNum}: ${upsertError.message}`);
 }
 };
 
-const processBatchInserts = async (transformedData) => {
+const processBatchUpserts = async (transformedData, Model, keyField = 'orderNo') => {
+let totalProcessed = 0;
 let totalInserted = 0;
-const insertResults = [];
+let totalUpdated = 0;
+let totalActualSaved = 0;
+const upsertResults = [];
 
 const totalBatches = Math.ceil(transformedData.length / BATCH_SIZE);
 
@@ -159,26 +210,31 @@ for (let i = 0; i < transformedData.length; i += BATCH_SIZE) {
 const batch = transformedData.slice(i, i + BATCH_SIZE);
 const batchNum = Math.floor(i / BATCH_SIZE) + 1;
 
-const result = await handleBatchInsert(batch, batchNum, totalBatches);
+const result = await handleBatchUpsert(batch, batchNum, totalBatches, Model, keyField);
 
+totalProcessed += result.processed;
 totalInserted += result.inserted;
-insertResults.push(result);
+totalUpdated += result.updated;
+totalActualSaved += result.actualSaved;
+upsertResults.push(result);
 }
 
-return { totalInserted, insertResults };
+return { totalProcessed, totalInserted, totalUpdated, totalActualSaved, upsertResults };
 };
 
-const createUploadResponse = (totalInserted, processedRecords, sessionTotal, databaseTotal, duration, insertResults) => ({
-message: "Data sayurbox berhasil disimpan ke database",
-count: totalInserted,
+const createUpsertResponse = (totalActualSaved, totalInserted, totalUpdated, processedRecords, sessionTotal, databaseTotal, duration, upsertResults, dataType) => ({
+message: `Data ${dataType} berhasil disimpan ke database`,
+count: totalActualSaved,
 summary: {
-totalRecords: totalInserted,
+totalRecords: totalActualSaved,
+insertedRecords: totalInserted,
+updatedRecords: totalUpdated,
 processedRecords,
 sessionTotal,
 databaseTotal,
 success: true,
 duration: `${duration}ms`,
-insertResults
+upsertResults
 }
 });
 
@@ -206,6 +262,24 @@ error: error.message
 }
 };
 
+const resetEDataUploadState = async (req, res) => {
+try {
+eDataUploadState.reset();
+console.log('EData upload state has been reset manually');
+
+res.status(200).json({ 
+message: "EData upload state reset successfully",
+success: true 
+});
+} catch (error) {
+console.error("Reset EData upload state error:", error.message);
+res.status(500).json({ 
+message: "Reset EData upload state failed", 
+error: error.message 
+});
+}
+};
+
 const uploadSayurboxData = async (req, res) => {
 const startTime = Date.now();
 console.log(`[${new Date().toISOString()}] Starting sayurbox data upload...`);
@@ -222,14 +296,6 @@ error: "Expected non-empty array"
 }
 
 console.log(`Processing segment with ${dataArray.length} records...`);
-console.log(`Upload state initialized: ${uploadState.isInitialized}`);
-
-if (!uploadState.isInitialized) {
-console.log("First segment detected - clearing existing sayurbox data");
-const deleteResult = await SayurboxData.deleteMany({});
-console.log(`Deleted ${deleteResult.deletedCount} existing sayurbox records`);
-uploadState.isInitialized = true;
-}
 
 let transformedData;
 try {
@@ -243,27 +309,32 @@ error: transformError.message
 });
 }
 
-const { totalInserted, insertResults } = await processBatchInserts(transformedData);
+const { totalProcessed, totalInserted, totalUpdated, totalActualSaved, upsertResults } = await processBatchUpserts(transformedData, SayurboxData);
 
-uploadState.totalProcessed += totalInserted;
+uploadState.totalProcessed += totalActualSaved;
 const duration = Date.now() - startTime;
 
-console.log(`Batch upload completed successfully:`);
+console.log(`Sayurbox batch upload completed successfully:`);
 console.log(`- Records processed: ${transformedData.length}`);
 console.log(`- Records inserted: ${totalInserted}`);
-console.log(`- Total processed in session: ${uploadState.totalProcessed}`);
+console.log(`- Records updated: ${totalUpdated}`);
+console.log(`- Total actually saved: ${totalActualSaved}`);
+console.log(`- Total saved in session: ${uploadState.totalProcessed}`);
 console.log(`- Duration: ${duration}ms`);
 
 const currentCount = await SayurboxData.countDocuments();
 console.log(`Current total records in database: ${currentCount}`);
 
-const response = createUploadResponse(
-totalInserted, 
+const response = createUpsertResponse(
+totalActualSaved,
+totalInserted,
+totalUpdated,
 transformedData.length, 
 uploadState.totalProcessed, 
 currentCount, 
 duration, 
-insertResults
+upsertResults,
+"sayurbox"
 );
 
 res.status(201).json(response);
@@ -277,11 +348,93 @@ res.status(500).json(createErrorResponse("Upload data sayurbox gagal", error, du
 }
 };
 
+const uploadEData = async (req, res) => {
+const startTime = Date.now();
+console.log(`[${new Date().toISOString()}] Starting edata upload...`);
+
+try {
+const dataArray = req.body;
+
+if (!Array.isArray(dataArray) || dataArray.length === 0) {
+console.error("Invalid edata format received");
+return res.status(400).json({ 
+message: "Data edata tidak valid atau kosong",
+error: "Expected non-empty array"
+});
+}
+
+console.log(`Processing edata segment with ${dataArray.length} records...`);
+
+let transformedData;
+try {
+transformedData = transformEDataArray(dataArray);
+console.log(`EData transformation completed: ${transformedData.length} valid records`);
+} catch (transformError) {
+console.error("EData transformation failed:", transformError.message);
+return res.status(400).json({
+message: "EData validation failed",
+error: transformError.message
+});
+}
+
+const { totalProcessed, totalInserted, totalUpdated, totalActualSaved, upsertResults } = await processBatchUpserts(transformedData, EData);
+
+eDataUploadState.totalProcessed += totalActualSaved;
+const duration = Date.now() - startTime;
+
+console.log(`EData batch upload completed successfully:`);
+console.log(`- Records processed: ${transformedData.length}`);
+console.log(`- Records inserted: ${totalInserted}`);
+console.log(`- Records updated: ${totalUpdated}`);
+console.log(`- Total actually saved: ${totalActualSaved}`);
+console.log(`- Total saved in session: ${eDataUploadState.totalProcessed}`);
+console.log(`- Duration: ${duration}ms`);
+
+const currentCount = await EData.countDocuments();
+console.log(`Current total edata records in database: ${currentCount}`);
+
+const response = createUpsertResponse(
+totalActualSaved,
+totalInserted,
+totalUpdated,
+transformedData.length, 
+eDataUploadState.totalProcessed, 
+currentCount, 
+duration, 
+upsertResults,
+"edata"
+);
+
+res.status(201).json(response);
+
+} catch (error) {
+const duration = Date.now() - startTime;
+console.error(`Upload edata failed after ${duration}ms:`, error.message);
+console.error("Error stack:", error.stack);
+
+res.status(500).json(createErrorResponse("Upload data edata gagal", error, duration));
+}
+};
+
 const createDataQuery = (page, limit) => {
 const skip = limit > 0 ? (page - 1) * limit : 0;
 
 const query = SayurboxData.find()
 .sort({ hubName: 1, driverName: 1, deliveryDate: -1 })
+.lean();
+
+if (limit > 0) {
+query.skip(skip).limit(parseInt(limit));
+}
+
+return query;
+};
+
+const createEDataQuery = (page, limit) => {
+const skip = limit > 0 ? (page - 1) * limit : 0;
+
+const query = EData.find()
+.sort({ hubs: 1, driverName: 1, deliveryDate: -1 })
 .lean();
 
 if (limit > 0) {
@@ -332,6 +485,31 @@ error: error.message
 }
 };
 
+const getAllEData = async (req, res) => {
+try {
+const { page = 1, limit = 0 } = req.query;
+
+console.log(`Fetching edata - page: ${page}, limit: ${limit}`);
+
+const query = createEDataQuery(page, limit);
+const [data, total] = await Promise.all([
+query,
+EData.countDocuments()
+]);
+
+console.log(`EData fetched: ${data.length} records, Total in DB: ${total}`);
+
+const response = createPaginatedResponse(data, total, page, limit, "Data edata berhasil diambil");
+res.status(200).json(response);
+} catch (error) {
+console.error("Get edata error:", error.message);
+res.status(500).json({ 
+message: "Gagal mengambil data edata", 
+error: error.message 
+});
+}
+};
+
 const createFilterQuery = (field, value) => ({
 [field]: { $regex: new RegExp(value, "i") }
 });
@@ -375,6 +553,45 @@ error: error.message
 }
 };
 
+const getEDataByFilter = async (req, res, filterField, filterValue, filterName) => {
+try {
+const { page = 1, limit = 1000 } = req.query;
+const skip = (page - 1) * limit;
+
+console.log(`Mencari edata untuk ${filterName}: ${filterValue}`);
+
+const filterQuery = createFilterQuery(filterField, filterValue);
+const sortQuery = filterField === 'hubs' 
+? { driverName: 1, deliveryDate: -1 }
+: { deliveryDate: -1, hubs: 1 };
+
+const data = await EData.find(filterQuery)
+.sort(sortQuery)
+.skip(skip)
+.limit(parseInt(limit))
+.lean();
+
+const total = await EData.countDocuments(filterQuery);
+
+console.log(`Jumlah edata ditemukan untuk ${filterName} ${filterValue}: ${total}`);
+
+res.status(200).json({
+message: `Data edata untuk ${filterName} ${filterValue} berhasil diambil`,
+count: data.length,
+total,
+page: parseInt(page),
+totalPages: Math.ceil(total / limit),
+data
+});
+} catch (error) {
+console.error(`Get edata by ${filterName} error:`, error.message);
+res.status(500).json({ 
+message: `Gagal mengambil data edata berdasarkan ${filterName}`, 
+error: error.message 
+});
+}
+};
+
 const getSayurboxDataByHub = async (req, res) => {
 const hub = req.params.hub;
 await getSayurboxDataByFilter(req, res, 'hubName', hub, 'hub');
@@ -383,6 +600,16 @@ await getSayurboxDataByFilter(req, res, 'hubName', hub, 'hub');
 const getSayurboxDataByDriver = async (req, res) => {
 const driver = req.params.driver;
 await getSayurboxDataByFilter(req, res, 'driverName', driver, 'driver');
+};
+
+const getEDataByHub = async (req, res) => {
+const hub = req.params.hub;
+await getEDataByFilter(req, res, 'hubs', hub, 'hub');
+};
+
+const getEDataByDriver = async (req, res) => {
+const driver = req.params.driver;
+await getEDataByFilter(req, res, 'driverName', driver, 'driver');
 };
 
 const deleteSayurboxData = async (req, res) => {
@@ -400,6 +627,26 @@ deletedCount: result.deletedCount
 console.error("Delete sayurbox error:", error.message);
 res.status(500).json({ 
 message: "Gagal menghapus data sayurbox", 
+error: error.message 
+});
+}
+};
+
+const deleteEData = async (req, res) => {
+try {
+const result = await EData.deleteMany({});
+eDataUploadState.reset();
+
+console.log(`Deleted ${result.deletedCount} edata records`);
+
+res.status(200).json({
+message: "Semua data edata berhasil dihapus",
+deletedCount: result.deletedCount
+});
+} catch (error) {
+console.error("Delete edata error:", error.message);
+res.status(500).json({ 
+message: "Gagal menghapus data edata", 
 error: error.message 
 });
 }
@@ -425,6 +672,26 @@ totalProcessed: uploadState.totalProcessed
 console.error("Get data info error:", error.message);
 res.status(500).json({ 
 message: "Gagal mengambil info data", 
+error: error.message 
+});
+}
+};
+
+const getEDataInfo = async (req, res) => {
+try {
+const edataCount = await EData.countDocuments();
+
+res.status(200).json({
+edataCount,
+uploadState: {
+isInitialized: eDataUploadState.isInitialized,
+totalProcessed: eDataUploadState.totalProcessed
+}
+});
+} catch (error) {
+console.error("Get edata info error:", error.message);
+res.status(500).json({ 
+message: "Gagal mengambil info edata", 
 error: error.message 
 });
 }
@@ -521,6 +788,84 @@ batchUpdated,
 batchUnmatchedExcel,
 batchProcessedExcel
 };
+};
+
+const compareOrderCodeData = async (req, res) => {
+const startTime = Date.now();
+const orderCode = req.body.orderCode.trim();
+
+console.log(`[${new Date().toISOString()}] Starting individual compare for order: ${orderCode}`);
+
+try {
+const [edataRecord, excelRecord] = await Promise.all([
+EData.findOne({ orderNo: orderCode }).lean(),
+ExcelData.findOne({ "Order Code": orderCode }).lean()
+]);
+
+if (!edataRecord) {
+return res.status(404).json({
+success: false,
+message: `Order Code ${orderCode} tidak ditemukan di EData`,
+updated: false,
+orderCode
+});
+}
+
+if (!excelRecord) {
+return res.status(404).json({
+success: false,
+message: `Order Code ${orderCode} tidak ditemukan di ExcelData`,
+updated: false,
+orderCode
+});
+}
+
+const currentDistance = parseFloat(excelRecord.Distance) || 0;
+const newDistance = parseFloat(edataRecord.distanceInKm) || 0;
+const currentWeight = excelRecord.Weight || '';
+
+const distanceMetrics = calculateDistanceMetrics(newDistance);
+
+const updateData = {
+Distance: distanceMetrics.distance,
+"RoundDown Distance": distanceMetrics.roundDownDistance,
+"RoundUp Distance": distanceMetrics.roundUpDistance
+};
+
+await ExcelData.updateOne(
+{ "Order Code": orderCode },
+{ $set: updateData }
+);
+
+const duration = Date.now() - startTime;
+
+console.log(`Individual compare completed for ${orderCode}: Distance ${currentDistance} -> ${newDistance}, Weight unchanged: ${currentWeight} (${duration}ms)`);
+
+res.status(200).json({
+success: true,
+message: `Order Code ${orderCode} berhasil diperbarui`,
+updated: true,
+orderCode,
+changes: {
+distance: { from: currentDistance, to: newDistance },
+weight: { unchanged: currentWeight }
+},
+duration: `${duration}ms`
+});
+
+} catch (error) {
+const duration = Date.now() - startTime;
+console.error(`Individual compare failed for ${orderCode} after ${duration}ms:`, error.message);
+
+res.status(500).json({
+success: false,
+message: `Compare gagal untuk Order Code ${orderCode}`,
+error: error.message,
+updated: false,
+orderCode,
+duration: `${duration}ms`
+});
+}
 };
 
 const createComparisonSummary = (totalChecked, totalUpdated, matchedRecords, unmatchedExcelCodes, unmatchedSayurboxCodes, duration) => ({
@@ -675,5 +1020,13 @@ getSayurboxDataByHub,
 getSayurboxDataByDriver,
 deleteSayurboxData,
 compareDataSayurbox,
-getDataInfo
+compareOrderCodeData,
+getDataInfo,
+uploadEData,
+resetEDataUploadState,
+getAllEData,
+getEDataByHub,
+getEDataByDriver,
+deleteEData,
+getEDataInfo
 };

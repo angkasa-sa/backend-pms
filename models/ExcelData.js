@@ -1,5 +1,24 @@
 const mongoose = require("mongoose");
 
+const calculateWeightMetrics = (weight) => {
+const numericWeight = Number(weight) || 0;
+const integerPart = Math.floor(numericWeight);
+const decimalPart = numericWeight - integerPart;
+const roundDown = numericWeight < 1 ? 0 : integerPart;
+const roundUp = decimalPart > 0.30 ? integerPart + 1 : integerPart;
+const weightDecimal = Number((numericWeight - roundDown).toFixed(2));
+return { roundDown, roundUp, weightDecimal };
+};
+
+const calculateDistanceMetrics = (distance) => {
+const distanceVal = Number(distance) || 0;
+const integerPart = Math.floor(distanceVal);
+const decimalPart = distanceVal - integerPart;
+const roundDownDistance = distanceVal < 1 ? 0 : integerPart;
+const roundUpDistance = decimalPart > 0.30 ? integerPart + 1 : integerPart;
+return { roundDownDistance, roundUpDistance };
+};
+
 const DataSchema = new mongoose.Schema({
 "Client Name": String,
 "Project Name": String,
@@ -51,6 +70,7 @@ ETA: String,
 "Selling Price": Number,
 "Zona": String,
 "Total Pengiriman": Number,
+"Unit": String,
 "Delivery Status": {
 type: String,
 enum: ["ONTIME", "LATE", ""],
@@ -92,12 +112,28 @@ DataSchema.pre('save', function(next) {
 if (this.isModified('Receiving Time') || this.isModified('ETA')) {
 this["Delivery Status"] = this.calculateDeliveryStatus();
 }
+
+if (this.isModified('Weight') && this.Weight) {
+const weightMetrics = calculateWeightMetrics(this.Weight);
+this.RoundDown = weightMetrics.roundDown;
+this.RoundUp = weightMetrics.roundUp;
+this.WeightDecimal = weightMetrics.weightDecimal;
+}
+
+if (this.isModified('Distance') && this.Distance !== null && this.Distance !== undefined) {
+const distanceMetrics = calculateDistanceMetrics(this.Distance);
+this["RoundDown Distance"] = distanceMetrics.roundDownDistance;
+this["RoundUp Distance"] = distanceMetrics.roundUpDistance;
+}
+
 next();
 });
 
 DataSchema.pre('updateOne', function(next) {
 const update = this.getUpdate();
-if (update.$set && (update.$set['Receiving Time'] || update.$set['ETA'])) {
+
+if (update.$set) {
+if (update.$set['Receiving Time'] || update.$set['ETA']) {
 const doc = this.getOptions().document || {};
 const receivingTime = update.$set['Receiving Time'] || doc['Receiving Time'];
 const eta = update.$set['ETA'] || doc['ETA'];
@@ -111,6 +147,57 @@ calculateDeliveryStatus: DataSchema.methods.calculateDeliveryStatus
 update.$set["Delivery Status"] = tempDoc.calculateDeliveryStatus();
 }
 }
+
+if (update.$set['Weight']) {
+const weightMetrics = calculateWeightMetrics(update.$set['Weight']);
+update.$set['RoundDown'] = weightMetrics.roundDown;
+update.$set['RoundUp'] = weightMetrics.roundUp;
+update.$set['WeightDecimal'] = weightMetrics.weightDecimal;
+}
+
+if (update.$set['Distance'] !== null && update.$set['Distance'] !== undefined) {
+const distanceMetrics = calculateDistanceMetrics(update.$set['Distance']);
+update.$set['RoundDown Distance'] = distanceMetrics.roundDownDistance;
+update.$set['RoundUp Distance'] = distanceMetrics.roundUpDistance;
+}
+}
+
+next();
+});
+
+DataSchema.pre('findOneAndUpdate', function(next) {
+const update = this.getUpdate();
+
+if (update.$set) {
+if (update.$set['Receiving Time'] || update.$set['ETA']) {
+const doc = this.getOptions().document || {};
+const receivingTime = update.$set['Receiving Time'] || doc['Receiving Time'];
+const eta = update.$set['ETA'] || doc['ETA'];
+
+if (receivingTime && eta) {
+const tempDoc = { 
+"Receiving Time": receivingTime, 
+ETA: eta,
+calculateDeliveryStatus: DataSchema.methods.calculateDeliveryStatus
+};
+update.$set["Delivery Status"] = tempDoc.calculateDeliveryStatus();
+}
+}
+
+if (update.$set['Weight']) {
+const weightMetrics = calculateWeightMetrics(update.$set['Weight']);
+update.$set['RoundDown'] = weightMetrics.roundDown;
+update.$set['RoundUp'] = weightMetrics.roundUp;
+update.$set['WeightDecimal'] = weightMetrics.weightDecimal;
+}
+
+if (update.$set['Distance'] !== null && update.$set['Distance'] !== undefined) {
+const distanceMetrics = calculateDistanceMetrics(update.$set['Distance']);
+update.$set['RoundDown Distance'] = distanceMetrics.roundDownDistance;
+update.$set['RoundUp Distance'] = distanceMetrics.roundUpDistance;
+}
+}
+
 next();
 });
 

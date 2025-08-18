@@ -9,6 +9,7 @@ const uploadRoutes = require("./routes/uploadRoutes");
 const driverRoutes = require("./routes/driverRoutes");
 const bonusRoutes = require("./routes/bonusRoutes");
 const sayurboxRoutes = require("./routes/sayurboxRoutes");
+const fleetRoutes = require("./routes/fleetRoutes");
 const errorHandler = require("./middleware/errorHandler");
 
 const app = express();
@@ -25,25 +26,32 @@ app.use("/api", uploadRoutes);
 app.use("/api/driver", driverRoutes);
 app.use("/api/bonus", bonusRoutes);
 app.use("/api/sayurbox", sayurboxRoutes);
+app.use("/api/fleet", fleetRoutes);
 
 app.get("/", (req, res) => {
-  res.json({ 
-    message: "PMS API Server is running", 
-    timestamp: new Date().toISOString() 
-  });
+res.json({ 
+message: "PMS API Server is running", 
+timestamp: new Date().toISOString() 
+});
 });
 
 app.use(errorHandler);
 
 connectDB().then(() => {
-  app.listen(port, "0.0.0.0", () => {
-    console.log(`🚀 Server running at http://localhost:${port}`);
-    console.log(`📊 Available endpoints:`);
-    console.log(`   - POST /api/upload (Upload Excel data)`);
-    console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
-    console.log(`   - GET /api/bonus/data (Get all bonus data)`);
-    console.log(`   - POST /api/sayurbox/upload (Upload sayurbox data)`);
-    console.log(`   - GET /api/sayurbox/data (Get all sayurbox data)`);
-    console.log(`   - GET /api/driver/* (Driver routes)`);
-  });
+app.listen(port, "0.0.0.0", () => {
+console.log(`🚀 Server running at http://localhost:${port}`);
+console.log(`📊 Available endpoints:`);
+console.log(`   - POST /api/upload (Upload Excel data)`);
+console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
+console.log(`   - GET /api/bonus/data (Get all bonus data)`);
+console.log(`   - POST /api/sayurbox/upload (Upload sayurbox data)`);
+console.log(`   - GET /api/sayurbox/data (Get all sayurbox data)`);
+console.log(`   - POST /api/sayurbox/edata-upload (Upload edata)`);
+console.log(`   - GET /api/sayurbox/edata (Get all edata)`);
+console.log(`   - POST /api/fleet/upload (Upload fleet data)`);
+console.log(`   - GET /api/fleet/data (Get fleet data with pagination & filters)`);
+console.log(`   - GET /api/fleet/filters (Get available filter options)`);
+console.log(`   - GET /api/fleet/stats (Get fleet statistics)`);
+console.log(`   - GET /api/driver/* (Driver routes)`);
+});
 });

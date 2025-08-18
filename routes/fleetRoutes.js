@@ -1,23 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const {
-uploadSayurboxData,
-resetUploadState,
-getAllSayurboxData,
-getSayurboxDataByHub,
-getSayurboxDataByDriver,
-deleteSayurboxData,
-compareDataSayurbox,
-compareOrderCodeData,
-getDataInfo,
-uploadEData,
-resetEDataUploadState,
-getAllEData,
-getEDataByHub,
-getEDataByDriver,
-deleteEData,
-getEDataInfo
-} = require('../controllers/sayurboxController');
+uploadFleetData,
+getAllFleetData,
+getFleetFilters,
+getFleetDataByPlat,
+deleteFleetData,
+getFleetInfo,
+resetFleetUploadState
+} = require('../controllers/fleetController');
 
 const logRequest = (req, res, next) => {
 const startTime = Date.now();
@@ -43,12 +34,9 @@ console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} - ${
 next();
 };
 
-const validateBatchData = (dataType = 'sayurbox') => {
-return (req, res, next) => {
-const uploadPaths = ['/upload', '/', '/edata-upload'];
-
-if (req.method === 'POST' && uploadPaths.includes(req.url)) {
-console.log(`Validating ${dataType} batch data for ${req.method} ${req.url}`);
+const validateBatchFleetData = (req, res, next) => {
+if (req.method === 'POST' && (req.url === '/upload' || req.url === '/')) {
+console.log('Validating fleet batch data for upload');
 
 if (!req.body) {
 console.error('Validation failed: No request body');
@@ -79,10 +67,7 @@ success: false
 });
 }
 
-const requiredFields = dataType === 'edata' 
-? ['order_no', 'driver_name', 'hubs']
-: ['order_no', 'driver_name', 'hub_name'];
-
+const requiredFields = ['nomorPlat', 'namaLengkapUserSesuaiKtp'];
 const firstRecord = req.body[0];
 
 if (!firstRecord || typeof firstRecord !== 'object') {
@@ -94,49 +79,19 @@ success: false
 });
 }
 
-const missingFields = requiredFields.filter(field => !firstRecord[field]);
+const missingFields = requiredFields.filter(field => !firstRecord[field] || !firstRecord[field].toString().trim());
 
 if (missingFields.length > 0) {
 console.error(`Validation failed: Missing required fields: ${missingFields.join(', ')}`);
 return res.status(400).json({
-message: `Missing required fields: ${missingFields.join(', ')}`,
-error: `Each record must contain ${requiredFields.join(', ')}`,
+message: `Field wajib tidak boleh kosong: ${missingFields.join(', ')}`,
+error: `Setiap record harus mengandung ${requiredFields.join(', ')} yang tidak kosong`,
 firstRecord: firstRecord,
 success: false
 });
 }
 
-console.log(`Validation passed: ${req.body.length} records with required fields`);
-}
-
-next();
-};
-};
-
-const validateCompareOrderCode = (req, res, next) => {
-if (req.method === 'POST' && req.url === '/compare-order') {
-console.log('Validating compare order code request');
-
-if (!req.body) {
-console.error('Validation failed: No request body');
-return res.status(400).json({
-message: 'Invalid request: No data provided',
-error: 'Request body is required',
-success: false
-});
-}
-
-if (!req.body.orderCode || typeof req.body.orderCode !== 'string' || !req.body.orderCode.trim()) {
-console.error('Validation failed: Invalid orderCode');
-return res.status(400).json({
-message: 'Invalid orderCode',
-error: 'orderCode must be a non-empty string',
-received: req.body.orderCode,
-success: false
-});
-}
-
-console.log(`Validation passed: orderCode = ${req.body.orderCode.trim()}`);
+console.log(`Validation passed: ${req.body.length} fleet records with required fields`);
 }
 
 next();
@@ -162,7 +117,7 @@ let errorDetails = process.env.NODE_ENV === 'development' ? err.message : 'Somet
 
 if (err.name === 'ValidationError') {
 statusCode = 400;
-message = 'Data validation failed';
+message = 'Fleet data validation failed';
 errorDetails = err.message;
 } else if (err.name === 'MongoError' || err.name === 'MongoServerError') {
 console.error('MongoDB Error Details:', {
@@ -200,39 +155,23 @@ success: false
 
 router.use(logRequest);
 
-router.post('/reset', handleAsyncErrors(resetUploadState));
+router.post('/reset', handleAsyncErrors(resetFleetUploadState));
 
-router.post('/upload', validateBatchData('sayurbox'), handleAsyncErrors(uploadSayurboxData));
+router.post('/upload', validateBatchFleetData, handleAsyncErrors(uploadFleetData));
 
-router.post('/', validateBatchData('sayurbox'), handleAsyncErrors(uploadSayurboxData));
+router.post('/', validateBatchFleetData, handleAsyncErrors(uploadFleetData));
 
-router.get('/data', handleAsyncErrors(getAllSayurboxData));
+router.get('/data', handleAsyncErrors(getAllFleetData));
 
-router.get('/data-info', handleAsyncErrors(getDataInfo));
+router.get('/filters', handleAsyncErrors(getFleetFilters));
 
-router.get('/hub/:hub', handleAsyncErrors(getSayurboxDataByHub));
+router.get('/info', handleAsyncErrors(getFleetInfo));
 
-router.get('/driver/:driver', handleAsyncErrors(getSayurboxDataByDriver));
+router.get('/filters', handleAsyncErrors(getFleetFilters));
 
-router.delete('/data', handleAsyncErrors(deleteSayurboxData));
+router.get('/plat/:plat', handleAsyncErrors(getFleetDataByPlat));
 
-router.post('/compare', handleAsyncErrors(compareDataSayurbox));
-
-router.post('/compare-order', validateCompareOrderCode, handleAsyncErrors(compareOrderCodeData));
-
-router.post('/edata-reset', handleAsyncErrors(resetEDataUploadState));
-
-router.post('/edata-upload', validateBatchData('edata'), handleAsyncErrors(uploadEData));
-
-router.get('/edata', handleAsyncErrors(getAllEData));
-
-router.get('/edata-info', handleAsyncErrors(getEDataInfo));
-
-router.get('/edata/hub/:hub', handleAsyncErrors(getEDataByHub));
-
-router.get('/edata/driver/:driver', handleAsyncErrors(getEDataByDriver));
-
-router.delete('/edata', handleAsyncErrors(deleteEData));
+router.delete('/data', handleAsyncErrors(deleteFleetData));
 
 router.use(handleErrors);
 
