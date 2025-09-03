@@ -18,32 +18,31 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 const corsOptions = {
-  origin: '*',
-  credentials: false,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization', 
-    'Accept',
-    'Origin',
-    'X-Requested-With',
-    'Access-Control-Request-Method',
-    'Access-Control-Request-Headers',
-    'cache-control',
-    'pragma',
-    'expires',
-    'if-none-match',
-    'if-modified-since'
-  ],
-  exposedHeaders: ['Content-Length', 'X-Total-Count'],
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:3001',
+      'https://frontend-pms.vercel.app',
+      process.env.FRONTEND_URL
+    ].filter(Boolean);
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   preflightContinue: false,
-  optionsSuccessStatus: 204
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
 app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(compression());
 app.use(morgan("dev"));
@@ -64,24 +63,32 @@ app.get("/", (req, res) => {
   });
 });
 
+app.use((err, req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.get('Origin') || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  next(err);
+});
+
 app.use(errorHandler);
 
 const startServer = async () => {
   try {
     await connectDB();
-    console.log("Database connected successfully");
+    console.log("📊 Database connected successfully");
 
     try {
       await initializeLarkTokens();
-      console.log("Lark tokens initialized successfully");
+      console.log("🔑 Lark tokens initialized successfully");
     } catch (larkError) {
-      console.warn("Warning: Failed to initialize Lark tokens:", larkError.message);
-      console.warn("Server will continue without Lark integration");
+      console.warn("⚠️ Warning: Failed to initialize Lark tokens:", larkError.message);
+      console.warn("🔄 Server will continue without Lark integration");
     }
 
     app.listen(port, "0.0.0.0", () => {
-      console.log(`Server running at http://localhost:${port}`);
-      console.log(`Available endpoints:`);
+      console.log(`🚀 Server running at http://localhost:${port}`);
+      console.log(`📊 Available endpoints:`);
       console.log(`   - POST /api/upload (Upload Excel data)`);
       console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
       console.log(`   - GET /api/bonus/data (Get all bonus data)`);
@@ -98,7 +105,7 @@ const startServer = async () => {
       console.log(`   - GET /api/records/all (Get all LarkSuite records)`);
     });
   } catch (error) {
-    console.error("Failed to start server:", error.message);
+    console.error("❌ Failed to start server:", error.message);
     process.exit(1);
   }
 };
