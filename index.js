@@ -17,76 +17,12 @@ const { initializeLarkTokens } = require("./services/larkTokenService");
 const app = express();
 const port = process.env.PORT || 5000;
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:8080',
-      'http://localhost:5000',
-      'https://localhost:3000',
-      'https://localhost:5173',
-      'https://localhost:8080',
-      'https://localhost:5000',
-      process.env.FRONTEND_URL,
-      process.env.CLIENT_URL
-    ].filter(Boolean);
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With', 
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'Cache-Control',
-    'X-Access-Token',
-    'Access-Control-Allow-Origin',
-    'Access-Control-Allow-Headers',
-    'Access-Control-Allow-Methods'
-  ],
-  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
-  maxAge: 86400,
-  preflightContinue: false,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
-
-app.options('*', cors(corsOptions));
-
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
+app.use(cors());
+app.use(helmet());
 app.use(compression());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Origin,X-Requested-With,Content-Type,Accept,Authorization,Cache-Control,X-Access-Token');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
 
 app.use("/api", uploadRoutes);
 app.use("/api/driver", driverRoutes);
@@ -98,16 +34,7 @@ app.use("/api", larkRoutes);
 app.get("/", (req, res) => {
   res.json({ 
     message: "PMS API Server is running", 
-    timestamp: new Date().toISOString(),
-    cors: "enabled"
-  });
-});
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    cors: "enabled"
+    timestamp: new Date().toISOString() 
   });
 });
 
@@ -128,7 +55,6 @@ const startServer = async () => {
 
     app.listen(port, "0.0.0.0", () => {
       console.log(`Server running at http://localhost:${port}`);
-      console.log("CORS enabled for multiple origins including localhost:5173");
       console.log(`Available endpoints:`);
       console.log(`   - POST /api/upload (Upload Excel data)`);
       console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
@@ -144,7 +70,6 @@ const startServer = async () => {
       console.log(`   - GET /api/driver/* (Driver routes)`);
       console.log(`   - GET /api/records (Get LarkSuite records with pagination)`);
       console.log(`   - GET /api/records/all (Get all LarkSuite records)`);
-      console.log(`   - GET /api/health (Health check endpoint)`);
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
