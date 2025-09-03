@@ -4,7 +4,7 @@ let LarkConfig;
 try {
   LarkConfig = require("../models/LarkConfig");
 } catch (error) {
-  console.warn("⚠️ LarkConfig model not found, Lark features will be disabled");
+  console.warn("LarkConfig model not found, Lark features will be disabled");
   LarkConfig = null;
 }
 
@@ -25,7 +25,7 @@ const getTenantAccessToken = () => {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Length": Buffer.byteLength(postData)
       },
-      timeout: 15000
+      timeout: 10000
     };
 
     const req = https.request(API_URL, options, (res) => {
@@ -41,21 +41,21 @@ const getTenantAccessToken = () => {
           if (response.code === 0) {
             resolve(response);
           } else {
-            reject(new Error(`Lark API Error: ${response.msg || 'Unknown error'}`));
+            reject(new Error(`API Error: ${response.msg || 'Unknown error'}`));
           }
         } catch (error) {
-          reject(new Error("Invalid JSON response from Lark API"));
+          reject(new Error("Invalid JSON response"));
         }
       });
     });
 
     req.on("error", (error) => {
-      reject(new Error(`Network error: ${error.message}`));
+      reject(error);
     });
 
     req.on("timeout", () => {
       req.destroy();
-      reject(new Error("Request timeout - Lark API not responding"));
+      reject(new Error("Request timeout"));
     });
 
     req.write(postData);
@@ -65,23 +65,23 @@ const getTenantAccessToken = () => {
 
 const updateTokensInDB = async (tokens) => {
   if (!LarkConfig) {
-    console.warn("⚠️ LarkConfig model not available, skipping database update");
+    console.warn("LarkConfig model not available, skipping database update");
     return null;
   }
 
   try {
     const result = await LarkConfig.updateTokens(tokens);
-    console.log("💾 Tokens saved to database successfully");
+    console.log("Tokens saved to database successfully");
     return result;
   } catch (error) {
-    console.error("❌ Error saving tokens to database:", error.message);
+    console.error("Error saving tokens to database:", error.message);
     throw error;
   }
 };
 
 const initializeLarkTokens = async () => {
   if (!LarkConfig) {
-    console.warn("⚠️ LarkConfig model not available, skipping Lark token initialization");
+    console.warn("LarkConfig model not available, skipping Lark token initialization");
     return {
       tenant_access_token: "",
       user_access_token: "",
@@ -90,30 +90,25 @@ const initializeLarkTokens = async () => {
   }
 
   try {
-    console.log("🔄 Initializing Lark tokens...");
+    console.log("Initializing Lark tokens...");
 
     const result = await getTenantAccessToken();
 
-    if (!result.tenant_access_token) {
-      throw new Error("No tenant access token received from Lark API");
-    }
-
     const tokens = {
-      tenant_access_token: result.tenant_access_token,
+      tenant_access_token: result.tenant_access_token || "",
       user_access_token: "",
       app_access_token: "",
-      expire: result.expire || 7200
+      expire: result.expire
     };
 
     await updateTokensInDB(tokens);
 
-    console.log("✅ Lark tokens initialized successfully");
-    console.log(`⏰ Token expires in: ${result.expire || 7200} seconds`);
+    console.log("Lark tokens initialized successfully");
+    console.log(`Token expires in: ${result.expire} seconds`);
 
     return tokens;
   } catch (error) {
-    console.error("❌ Error initializing Lark tokens:", error.message);
-    console.warn("🔄 Continuing with empty tokens, server will run without Lark integration");
+    console.error("Error initializing Lark tokens:", error.message);
 
     const emptyTokens = {
       tenant_access_token: "",
@@ -122,13 +117,11 @@ const initializeLarkTokens = async () => {
     };
 
     try {
-      if (LarkConfig) {
-        await updateTokensInDB(emptyTokens);
-      }
+      await updateTokensInDB(emptyTokens);
     } catch (dbError) {
-      console.error("❌ Error saving empty tokens to database:", dbError.message);
+      console.error("Error saving empty tokens to database:", dbError.message);
     }
-
+    
     return emptyTokens;
   }
 };
@@ -146,7 +139,7 @@ const refreshTokenIfNeeded = async () => {
     const config = await LarkConfig.findOne();
 
     if (!config || !config.expires_at || new Date() >= config.expires_at) {
-      console.log("🔄 Token expired, refreshing Lark token...");
+      console.log("Refreshing Lark token...");
       return await initializeLarkTokens();
     }
 
@@ -156,34 +149,34 @@ const refreshTokenIfNeeded = async () => {
       app_access_token: config.app_access_token
     };
   } catch (error) {
-    console.error("❌ Error checking token expiry:", error.message);
+    console.error("Error refreshing token:", error.message);
     return await initializeLarkTokens();
   }
 };
 
 const forceRefreshTokens = async () => {
   if (!LarkConfig) {
-    throw new Error("LarkConfig model not available for token refresh");
+    throw new Error("LarkConfig model not available");
   }
 
   try {
-    console.log("🔄 Force refreshing Lark tokens...");
+    console.log("Force refreshing Lark tokens...");
     const result = await getTenantAccessToken();
 
     const tokens = {
       tenant_access_token: result.tenant_access_token || "",
       user_access_token: "",
       app_access_token: "",
-      expire: result.expire || 7200
+      expire: result.expire
     };
 
     await updateTokensInDB(tokens);
 
-    console.log("✅ Lark tokens force refreshed successfully");
-    console.log(`⏰ New token expires in: ${result.expire || 7200} seconds`);
+    console.log("Lark tokens force refreshed successfully");
+    console.log(`New token expires in: ${result.expire} seconds`);
     return tokens;
   } catch (error) {
-    console.error("❌ Error force refreshing Lark tokens:", error.message);
+    console.error("Error force refreshing Lark tokens:", error.message);
     throw error;
   }
 };

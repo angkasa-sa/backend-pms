@@ -22,22 +22,29 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:5173',
-      'http://localhost:3001',
-      'https://frontend-pms.vercel.app',
-      process.env.FRONTEND_URL
-    ].filter(Boolean);
+      'http://localhost:8080',
+      'https://your-frontend-domain.com'
+    ];
     
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(null, true);
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  preflightContinue: false,
-  optionsSuccessStatus: 200
+  allowedHeaders: [
+    'Origin',
+    'X-Requested-With',
+    'Content-Type',
+    'Accept',
+    'Authorization',
+    'Cache-Control',
+    'X-Access-Token'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  maxAge: 86400
 };
 
 app.use(cors(corsOptions));
@@ -48,6 +55,8 @@ app.use(compression());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+app.options('*', cors(corsOptions));
 
 app.use("/api", uploadRoutes);
 app.use("/api/driver", driverRoutes);
@@ -63,32 +72,24 @@ app.get("/", (req, res) => {
   });
 });
 
-app.use((err, req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.get('Origin') || '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  next(err);
-});
-
 app.use(errorHandler);
 
 const startServer = async () => {
   try {
     await connectDB();
-    console.log("📊 Database connected successfully");
+    console.log("Database connected successfully");
 
     try {
       await initializeLarkTokens();
-      console.log("🔑 Lark tokens initialized successfully");
+      console.log("Lark tokens initialized successfully");
     } catch (larkError) {
-      console.warn("⚠️ Warning: Failed to initialize Lark tokens:", larkError.message);
-      console.warn("🔄 Server will continue without Lark integration");
+      console.warn("Warning: Failed to initialize Lark tokens:", larkError.message);
+      console.warn("Server will continue without Lark integration");
     }
 
     app.listen(port, "0.0.0.0", () => {
-      console.log(`🚀 Server running at http://localhost:${port}`);
-      console.log(`📊 Available endpoints:`);
+      console.log(`Server running at http://localhost:${port}`);
+      console.log(`Available endpoints:`);
       console.log(`   - POST /api/upload (Upload Excel data)`);
       console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
       console.log(`   - GET /api/bonus/data (Get all bonus data)`);
@@ -105,7 +106,7 @@ const startServer = async () => {
       console.log(`   - GET /api/records/all (Get all LarkSuite records)`);
     });
   } catch (error) {
-    console.error("❌ Failed to start server:", error.message);
+    console.error("Failed to start server:", error.message);
     process.exit(1);
   }
 };
