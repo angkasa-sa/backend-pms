@@ -17,8 +17,32 @@ const { initializeLarkTokens } = require("./services/larkTokenService");
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
-app.use(helmet());
+const corsOptions = {
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:8080',
+      'https://septaanugrahperkasa.com'
+    ];
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  preflightContinue: false,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.use(helmet({
+  crossOriginEmbedderPolicy: false
+}));
 app.use(compression());
 app.use(morgan("dev"));
 app.use(express.json({ limit: "50mb" }));
