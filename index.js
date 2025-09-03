@@ -43,19 +43,20 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     await connectDB();
-    console.log("Database connected successfully");
+    console.log("📊 Database connected successfully");
 
-    try {
-      await initializeLarkTokens();
-      console.log("Lark tokens initialized successfully");
-    } catch (larkError) {
-      console.warn("Warning: Failed to initialize Lark tokens:", larkError.message);
-      console.warn("Server will continue without Lark integration");
-    }
+    setImmediate(async () => {
+      try {
+        await initializeLarkTokens();
+        console.log("✅ Lark tokens initialization completed");
+      } catch (tokenError) {
+        console.warn("⚠️ Lark tokens initialization failed:", tokenError.message);
+      }
+    });
 
     app.listen(port, "0.0.0.0", () => {
-      console.log(`Server running at http://localhost:${port}`);
-      console.log(`Available endpoints:`);
+      console.log(`🚀 Server running at http://localhost:${port}`);
+      console.log(`📊 Available endpoints:`);
       console.log(`   - POST /api/upload (Upload Excel data)`);
       console.log(`   - POST /api/bonus/upload (Upload bonus data)`);
       console.log(`   - GET /api/bonus/data (Get all bonus data)`);
@@ -72,7 +73,7 @@ const startServer = async () => {
       console.log(`   - GET /api/records/all (Get all LarkSuite records)`);
     });
   } catch (error) {
-    console.error("Failed to start server:", error.message);
+    console.error("❌ Failed to start server:", error.message);
     process.exit(1);
   }
 };
