@@ -18,30 +18,32 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:8080',
-      'https://septaanugrahperkasa.com'
-    ];
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
+  origin: '*',
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization', 
+    'Accept',
+    'Origin',
+    'X-Requested-With',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers',
+    'cache-control',
+    'pragma',
+    'expires',
+    'if-none-match',
+    'if-modified-since'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Total-Count'],
   preflightContinue: false,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 204
 };
 
 app.use(cors(corsOptions));
 app.use(helmet({
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false
 }));
 app.use(compression());
 app.use(morgan("dev"));
