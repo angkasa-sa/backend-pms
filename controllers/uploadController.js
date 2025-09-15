@@ -20,6 +20,61 @@ const roundUpDistance = decimalPart > 0.30 ? integerPart + 1 : integerPart;
 return { roundDownDistance, roundUpDistance };
 };
 
+const validateAndSanitizeData = (data) => {
+const validatedData = { ...data };
+
+if (validatedData["Delivery Status"]) {
+const status = validatedData["Delivery Status"].toString().trim().toUpperCase();
+const validStatuses = ["ONTIME", "LATE", "DELAY", "EARLY"];
+if (!validStatuses.includes(status)) {
+if (status === "PENDING" || status === "ON TIME") {
+validatedData["Delivery Status"] = "ONTIME";
+} else if (status === "DELAYED") {
+validatedData["Delivery Status"] = "DELAY";
+} else {
+validatedData["Delivery Status"] = "ONTIME";
+}
+} else {
+validatedData["Delivery Status"] = status;
+}
+}
+
+const numericFields = [
+'Cost', 'Add Cost 1', 'Add Cost 2', 'Add Charge 1', 'Add Charge 2',
+'Selling Price', 'RoundDown', 'RoundUp', 'WeightDecimal', 
+'Distance', 'RoundDown Distance', 'RoundUp Distance'
+];
+
+numericFields.forEach(field => {
+if (validatedData[field] !== undefined && validatedData[field] !== null) {
+const numValue = parseFloat(validatedData[field]);
+validatedData[field] = isNaN(numValue) ? 0 : numValue;
+}
+});
+
+const integerFields = ['Total Pengiriman', 'Additional Notes For Address'];
+integerFields.forEach(field => {
+if (validatedData[field] !== undefined && validatedData[field] !== null) {
+const intValue = parseInt(validatedData[field]);
+validatedData[field] = isNaN(intValue) ? 0 : intValue;
+}
+});
+
+const stringFields = [
+'Client Name', 'Project Name', 'Order Code', 'HUB', 'Courier Name', 
+'Courier Code', 'Drop Point', 'Cnee Name', 'Cnee Address 1', 
+'Cnee Address 2', 'Cnee Area', 'Weight', 'Zona', 'Payment Term'
+];
+
+stringFields.forEach(field => {
+if (validatedData[field] !== undefined && validatedData[field] !== null) {
+validatedData[field] = validatedData[field].toString().trim();
+}
+});
+
+return validatedData;
+};
+
 const uploadData = async (req, res) => {
 try {
 const dataArray = req.body.records || req.body;
@@ -72,7 +127,7 @@ let totalInserted = 0;
 const insertErrors = [];
 
 for (let i = 0; i < validData.length; i += batchSize) {
-const batch = validData.slice(i, i + batchSize);
+const batch = validData.slice(i, i + batchSize).map(validateAndSanitizeData);
 console.log(`Inserting batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(validData.length / batchSize)} - ${batch.length} records`);
 
 try {
@@ -236,6 +291,7 @@ const clientName = item["Client Name"]?.toString().trim();
 if (!orderCode || !clientName) continue;
 
 try {
+const validatedItem = validateAndSanitizeData(item);
 const existingRecord = await ExcelData.findOne({
 "Order Code": orderCode
 }).session(session);
@@ -243,7 +299,7 @@ const existingRecord = await ExcelData.findOne({
 if (existingRecord) {
 const updateResult = await ExcelData.updateOne(
 { "Order Code": orderCode },
-{ $set: item },
+{ $set: validatedItem },
 { session, runValidators: true }
 );
 
@@ -256,7 +312,7 @@ clientName
 });
 }
 } else {
-await ExcelData.create([item], { session });
+await ExcelData.create([validatedItem], { session });
 insertedCount++;
 processedRecords.push({
 action: 'inserted',
@@ -306,7 +362,7 @@ const batchSize = 1000;
 let totalInserted = 0;
 
 for (let i = 0; i < newData.length; i += batchSize) {
-const batch = newData.slice(i, i + batchSize);
+const batch = newData.slice(i, i + batchSize).map(validateAndSanitizeData);
 console.log(`Appending batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(newData.length / batchSize)} - ${batch.length} records`);
 
 try {
@@ -435,27 +491,21 @@ console.log(`Record not found: ${trimmedClientName} - ${trimmedOrderCode}`);
 continue;
 }
 
-const cleanUpdateData = {};
-Object.keys(updateData).forEach(key => {
-const value = updateData[key];
-if (value !== null && value !== undefined && value !== "") {
-cleanUpdateData[key] = value;
-}
-});
-
-if (Object.keys(cleanUpdateData).length === 0) {
+if (!updateData || typeof updateData !== 'object') {
 failedCount++;
 notFoundRecords.push({ 
 clientName: trimmedClientName, 
 orderCode: trimmedOrderCode, 
-error: "Tidak ada data untuk diupdate" 
+error: "Update data tidak valid" 
 });
 continue;
 }
 
+const validatedUpdateData = validateAndSanitizeData(updateData);
+
 const updateResult = await ExcelData.updateOne(
 { _id: existingRecord._id },
-{ $set: cleanUpdateData },
+{ $set: validatedUpdateData },
 { session, runValidators: true }
 );
 
@@ -464,17 +514,20 @@ successCount++;
 updatedRecords.push({
 clientName: trimmedClientName,
 orderCode: trimmedOrderCode,
-updatedFields: Object.keys(cleanUpdateData),
+updatedFields: Object.keys(validatedUpdateData),
 recordId: existingRecord._id
 });
 console.log(`Successfully updated: ${trimmedClientName} - ${trimmedOrderCode}`);
 } else {
-failedCount++;
-notFoundRecords.push({ 
-clientName: trimmedClientName, 
-orderCode: trimmedOrderCode, 
-error: "Update tidak berhasil (tidak ada perubahan)" 
+successCount++;
+updatedRecords.push({
+clientName: trimmedClientName,
+orderCode: trimmedOrderCode,
+updatedFields: Object.keys(validatedUpdateData),
+recordId: existingRecord._id,
+note: "No changes detected but operation successful"
 });
+console.log(`No changes but operation successful: ${trimmedClientName} - ${trimmedOrderCode}`);
 }
 
 } catch (updateError) {
@@ -490,7 +543,7 @@ error: updateError.message
 
 await session.commitTransaction();
 
-const responseMessage = `Replace selesai. ${successCount} data berhasil diupdate, ${failedCount} data gagal/tidak ditemukan.`;
+const responseMessage = `Replace selesai. ${successCount} data berhasil diproses, ${failedCount} data gagal.`;
 console.log(`Replace completed: ${successCount} successful, ${failedCount} failed`);
 
 res.status(200).json({
@@ -498,7 +551,7 @@ message: responseMessage,
 summary: {
 totalProcessed: dataArray.length,
 successfulUpdates: successCount,
-notFound: failedCount,
+failed: failedCount,
 success: true
 },
 updatedRecords: updatedRecords.slice(0, 50),
