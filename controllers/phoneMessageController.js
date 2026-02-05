@@ -1,6 +1,9 @@
 const XLSX = require("xlsx");
 const PhoneMessage = require("../models/PhoneMessage");
 
+const WAHA_SERVICE_URL = process.env.WAHA_SERVICE_URL || "https://gallant-wonder-production-01e0.up.railway.app";
+const WAHA_API_KEY = process.env.WAHA_API_KEY || "1c67560aad774aa7a5f7fdf28ae01ae7";
+
 exports.uploadExcel = async (req, res) => {
   try {
     if (!req.file) {
@@ -91,8 +94,6 @@ exports.deleteAllMessages = async (req, res) => {
 exports.sendMessages = async (req, res) => {
   try {
     const { customMessage } = req.body;
-    const WAHA_BASE_URL = process.env.WAHA_BASE_URL || "http://localhost:5001";
-    const API_KEY = process.env.WAHA_API_KEY || "1c67560aad774aa7a5f7fdf28ae01ae7";
 
     const messages = await PhoneMessage.find().sort({ uploadedAt: -1 });
 
@@ -112,12 +113,14 @@ exports.sendMessages = async (req, res) => {
       const textToSend = customMessage && customMessage.trim() ? customMessage : msg.message;
 
       try {
-        const response = await fetch(`${WAHA_BASE_URL}/api/sendText`, {
+        console.log(`Sending to: ${chatId}`);
+        
+        const response = await fetch(`${WAHA_SERVICE_URL}/api/sendText`, {
           method: "POST",
           headers: {
-            "accept": "application/json",
-            "X-Api-Key": API_KEY,
-            "Content-Type": "application/json"
+            "x-api-key": WAHA_API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
           },
           body: JSON.stringify({
             chatId: chatId,
@@ -126,19 +129,22 @@ exports.sendMessages = async (req, res) => {
           })
         });
 
+        const responseData = await response.json();
+
         if (response.ok) {
           results.push({
             phone: normalizedPhone,
             success: true,
             message: "Message sent successfully"
           });
+          console.log(`✅ Success: ${chatId}`);
         } else {
-          const errorData = await response.json();
           results.push({
             phone: normalizedPhone,
             success: false,
-            error: errorData.message || "Failed to send message"
+            error: responseData.message || "Failed to send message"
           });
+          console.error(`❌ Failed: ${chatId} - ${responseData.message || 'Unknown error'}`);
         }
       } catch (error) {
         results.push({
@@ -146,9 +152,10 @@ exports.sendMessages = async (req, res) => {
           success: false,
           error: error.message
         });
+        console.error(`❌ Error: ${chatId} - ${error.message}`);
       }
 
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     const successCount = results.filter(r => r.success).length;
